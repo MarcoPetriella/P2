@@ -39,7 +39,7 @@ def callback(i, input_buffer, output_buffer_duty_cycle, output_buffer_frequency,
         path_input_buffer = callback_variables[3]
         
         # Parametros PID
-        valor_esperado = pid_variables[0]
+        set_point = pid_variables[0]
         vector_error = pid_variables[1]
         constantes_pid = pid_variables[2]
         kp = constantes_pid[0]
@@ -51,7 +51,7 @@ def callback(i, input_buffer, output_buffer_duty_cycle, output_buffer_frequency,
         ch1_array = input_buffer[i,:,0]          
         mean_ch1 = np.mean(ch1_array)
         vector_mean_ch1[i] = mean_ch1
-        error = mean_ch1 - valor_esperado
+        error = mean_ch1 - set_point
         vector_error[i] = error
 
         j = i-1
@@ -94,7 +94,7 @@ path_duty_cycle = ''
 path_input_buffer = ''
 
 # Variables Callback PID
-valor_esperado = 4.6
+set_point = 4.6
 vector_error = np.zeros(buffer_chunks)
 kp = 0.1
 ki = 0.5
@@ -109,7 +109,7 @@ callback_variables[2] = path_duty_cycle
 callback_variables[3] = path_input_buffer
 
 pid_variables = {}
-pid_variables[0] = valor_esperado
+pid_variables[0] = set_point
 pid_variables[1] = vector_error
 pid_variables[2] = constantes_pid
 
