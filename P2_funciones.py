@@ -19,6 +19,8 @@ from scipy import signal
 from sys import stdout
 import numpy.fft as fft
 import nidaqmx
+import nidaqmx.constants as constants
+import nidaqmx.stream_writers
 #import scipy.fftpack as fft 
     
 params = {'legend.fontsize': 'medium',
@@ -772,6 +774,153 @@ def play_rec_nidaqmx(fs_in,fs_out,input_channels,data_out,corrige_retardos,offse
         retardos = retardos-sample_delay
     
     return data_in, retardos
+
+
+def pid_daqmx(parametros):
+
+    chunks_buffer = 100
+    samples = 1000
+    samplerate_ai = 50000
+    
+    chunks_input_buffer = chunks_buffer
+    chunks_output_buffer = chunks_buffer
+    
+    vector_valor_medido = np.zeros(100000)
+    vector_duty_cycle = np.zeros(100000)
+    
+    input_channels = 1
+    
+    valor_esperado = 4.6
+    
+    
+    # Defino los buffers
+    input_buffer = np.zeros([chunks_input_buffer,samples,input_channels])
+    output_buffer = np.zeros(chunks_output_buffer)
+    output_buffer[0] = 0.5
+          
+    # Semaforos
+    semaphore1 = threading.Semaphore(0)
+    semaphore2 = threading.Semaphore(0)
+    
+    
+    with nidaqmx.Task() as task:
+        task.co_channels.add_co_pulse_chan_freq(counter='Dev1/ctr0',duty_cycle=0.5,freq=20.0,units=nidaqmx.constants.FrequencyUnits.HZ)
+    
+               
+    # Defino el thread que envia la señal          
+    def producer_thread():  
+        
+        with nidaqmx.Task() as task_do:
+            
+            task_do.co_channels.add_co_pulse_chan_freq(counter='Dev1/ctr0',duty_cycle=0.5,freq=200.0,units=nidaqmx.constants.FrequencyUnits.HZ)
+            task_do.timing.cfg_implicit_timing(sample_mode=constants.AcquisitionType.CONTINUOUS)    
+            digi_s = nidaqmx.stream_writers.CounterWriter(task_do.out_stream)
+            task_do.start()
+                       
+            i = 1
+            while producer_exit[0] is False:
+                
+                semaphore2.acquire()   
+    
+                digi_s.write_one_sample_pulse_frequency(frequency=200.0,duty_cycle=output_buffer[i])
+                
+                i = i+1
+                i = i%chunks_output_buffer     
+                
+    
+    # Defino el thread que adquiere la señal   
+    def consumer_thread():
+                
+        with nidaqmx.Task() as task_ai:
+            task_ai.ai_channels.add_ai_voltage_chan("Dev1/ai2",max_val=5., min_val=-5.,terminal_config=constants.TerminalConfiguration.RSE)#, "Voltage")#,AIVoltageUnits.Volts)#,max_val=10., min_val=-10.)
+            task_ai.timing.cfg_samp_clk_timing(samplerate_ai,samps_per_chan=samples,sample_mode=constants.AcquisitionType.CONTINUOUS)
+                
+            i = 1
+            while consumer_exit[0] is False:
+        
+                medicion = task_ai.read(number_of_samples_per_channel=samples)
+                medicion = np.asarray(medicion)
+                for j in range(input_channels):
+                    input_buffer[i,:,j] = medicion[j,:]  
+                
+                semaphore1.release() 
+                
+                i = i+1
+                i = i%chunks_input_buffer                  
+
+                
+    def callback_thread():
+
+        i = 1
+        j = 1
+        m = 1
+        while callback_exit[0] is False:        
+
+            if semaphore1._value > chunks_input_buffer:
+                print('Hay overun en la lectura! \n')
+            
+            if semaphore2._value > chunks_output_buffer:
+                print('Hay overun en la escritura! \n')
+            
+            semaphore1.acquire()    
+    
+            ## Inicio Callback 
+            medicion = input_buffer[i,:,0]            
+            valor_medio_medido = np.mean(medicion)
+            vector_valor_medido[m] = valor_medio_medido
+            error = valor_medio_medido - valor_esperado
+                    
+            output_buffer[j] = output_buffer[j-1] + 0.1*error
+            if output_buffer[j] > 0.99:
+                output_buffer[j] = 0.99
+            if output_buffer[j] < 0.01:
+                output_buffer[j] = 0.01                
+            output_buffer_ant = output_buffer[j]
+            
+            vector_duty_cycle[m] = output_buffer_ant            
+            ## Fin callback
+    
+            semaphore2.release()
+            
+            i = i+1
+            i = i%chunks_input_buffer   
+
+            j = j+1
+            j = j%chunks_output_buffer 
+            
+            m = m+1
+            m = m%len(vector_duty_cycle)  
+                                   
+    # Variables de salida de los threads
+    producer_exit = [False]   
+    consumer_exit = [False] 
+    callback_exit = [False] 
+            
+    # Inicio los threads    
+    print (u'\n Inicio barrido \n Presione Ctrl + c para interrumpir.')
+    t1 = threading.Thread(target=producer_thread, args=[])
+    t2 = threading.Thread(target=consumer_thread, args=[])
+    t3 = threading.Thread(target=callback_thread, args=[])
+    
+    t1.start()
+    t2.start()
+    t3.start()
+    
+    # Salida de la medición       
+    while not producer_exit[0] or not consumer_exit[0] or not callback_exit[0]:
+        try: 
+            time.sleep(0.2)
+        except KeyboardInterrupt:
+            consumer_exit[0] = True  
+            producer_exit[0] = True  
+            callback_exit[0] = True 
+            time.sleep(0.2)
+            print ('\n \n Medición interrumpida \n')
+
+
+
+
+
 
 
 

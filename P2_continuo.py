@@ -5,6 +5,8 @@ import numpy.fft as fft
 import os
 from P2_funciones import cross_correlation_using_fft
 import nidaqmx.constants as constants
+import nidaqmx.stream_writers
+import time
 
 #%%
 num_samples = 5000
@@ -26,17 +28,29 @@ with nidaqmx.Task() as task:
         
   
 #%%
+        
+        
       
 with nidaqmx.Task() as task:
-    task.co_channels.add_co_pulse_chan_freq(counter='Dev1/ctr0',duty_cycle=0.5,freq=20.0)
+    task.co_channels.add_co_pulse_chan_freq(counter='Dev1/ctr0',duty_cycle=0.5,freq=20.0,units=nidaqmx.constants.FrequencyUnits.HZ)
 
     pulse_count = 1000
-    
-    task.timing.cfg_implicit_timing(sample_mode=constants.AcquisitionType.FINITE,samps_per_chan=pulse_count)
-    task.triggers.start_trigger.cfg_dig_edge_start_trig('Dev1/ctr0')
-    task.triggers.start_trigger.retriggerable=True
+
+    task.timing.cfg_implicit_timing(sample_mode=constants.AcquisitionType.CONTINUOUS)    
+    nidaqmx.stream_writers.CounterWriter(task.out_stream)
+#    task.timing.cfg_implicit_timing(sample_mode=constants.AcquisitionType.FINITE,samps_per_chan=pulse_count)
+#    task.triggers.start_trigger.cfg_dig_edge_start_trig('Dev1/ctr0')
+#    task.triggers.start_trigger.retriggerable=True
 
     task.start()
+    
+    
+    while 1:
+        
+    
+    
+    
+    
     
 
 
