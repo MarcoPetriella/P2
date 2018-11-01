@@ -778,7 +778,7 @@ def play_rec_nidaqmx(fs_in,fs_out,input_channels,data_out,corrige_retardos,offse
 
 def pid_daqmx(parametros):
 
-    chunks_buffer = parametros['chunks_buffer']
+    buffer_chunks = parametros['buffer_chunks']
     
     ai_channels = parametros['ai_channels']
     ai_samples = parametros['ai_samples']
@@ -791,9 +791,9 @@ def pid_daqmx(parametros):
     initial_pid_frequency = parametros['initial_pid_frequency']
     
     # Defino los buffers
-    input_buffer = np.zeros([chunks_buffer,ai_samples,ai_channels])
-    output_buffer_duty_cycle = np.ones(chunks_buffer)*initial_pid_duty_cycle
-    output_buffer_frequency = np.ones(chunks_buffer)*initial_pid_frequency
+    input_buffer = np.zeros([buffer_chunks,ai_samples,ai_channels])
+    output_buffer_duty_cycle = np.ones(buffer_chunks)*initial_pid_duty_cycle
+    output_buffer_frequency = np.ones(buffer_chunks)*initial_pid_frequency
           
     # Semaforos
     semaphore1 = threading.Semaphore(0)
@@ -804,7 +804,7 @@ def pid_daqmx(parametros):
         
         with nidaqmx.Task() as task_do:
             
-            task_do.co_channels.add_co_pulse_chan_freq(counter='Dev1/ctr0',duty_cycle=0.5,freq=200.0,units=nidaqmx.constants.FrequencyUnits.HZ)
+            task_do.co_channels.add_co_pulse_chan_freq(counter='Dev1/ctr0',duty_cycle=initial_pid_duty_cycle,freq=initial_pid_frequency,units=nidaqmx.constants.FrequencyUnits.HZ)
             task_do.timing.cfg_implicit_timing(sample_mode=constants.AcquisitionType.CONTINUOUS)    
             digi_s = nidaqmx.stream_writers.CounterWriter(task_do.out_stream)
             task_do.start()
@@ -817,7 +817,7 @@ def pid_daqmx(parametros):
                 digi_s.write_one_sample_pulse_frequency(frequency = output_buffer_frequency[i], duty_cycle = output_buffer_duty_cycle[i])
                 
                 i = i+1
-                i = i%chunks_buffer     
+                i = i%buffer_chunks     
                 
     
     # Defino el thread que adquiere la señal   
@@ -840,7 +840,7 @@ def pid_daqmx(parametros):
                 semaphore1.release() 
                 
                 i = i+1
-                i = i%chunks_buffer                  
+                i = i%buffer_chunks                  
 
                 
     def callback_thread():
@@ -848,16 +848,16 @@ def pid_daqmx(parametros):
         i = 0
         while callback_exit[0] is False:        
 
-            if semaphore1._value > chunks_buffer:
+            if semaphore1._value > buffer_chunks:
                 print('Hay overun en la lectura! \n')
             
-            if semaphore2._value > chunks_buffer:
+            if semaphore2._value > buffer_chunks:
                 print('Hay overun en la escritura! \n')
             
             semaphore1.acquire()    
     
             ## Inicio Callback             
-            output_buffer_duty_cycle_i, output_buffer_frequency_i = callback(i, input_buffer, output_buffer_duty_cycle, output_buffer_frequency,chunks_buffer,initial_pid_duty_cycle,initial_pid_frequency,callback_variables)          
+            output_buffer_duty_cycle_i, output_buffer_frequency_i = callback(i, input_buffer, output_buffer_duty_cycle, output_buffer_frequency, buffer_chunks, initial_pid_duty_cycle, initial_pid_frequency, callback_variables)    
             output_buffer_duty_cycle[i] = output_buffer_duty_cycle_i
             output_buffer_frequency[i] = output_buffer_frequency_i                     
             ## Fin callback
@@ -865,10 +865,9 @@ def pid_daqmx(parametros):
             semaphore2.release()
             
             i = i+1
-            i = i%chunks_buffer   
+            i = i%buffer_chunks   
 
-            
-                                   
+                         
     # Variables de salida de los threads
     producer_exit = [False]   
     consumer_exit = [False] 
