@@ -778,35 +778,27 @@ def play_rec_nidaqmx(fs_in,fs_out,input_channels,data_out,corrige_retardos,offse
 
 def pid_daqmx(parametros):
 
-    chunks_buffer = 100
-    samples = 1000
-    samplerate_ai = 50000
+    chunks_buffer = parametros['chunks_buffer']
     
-    chunks_input_buffer = chunks_buffer
-    chunks_output_buffer = chunks_buffer
+    ai_channels = parametros['ai_channels']
+    ai_samples = parametros['ai_samples']
+    ai_samplerate = parametros['ai_samplerate']
     
-    vector_valor_medido = np.zeros(100000)
-    vector_duty_cycle = np.zeros(100000)
+    callback = parametros['callback']
+    callback_variables = parametros['callback_variables']
     
-    input_channels = 1
-    
-    valor_esperado = 4.6
-    
+    initial_pid_duty_cycle = parametros['initial_pid_duty_cycle']
+    initial_pid_frequency = parametros['initial_pid_frequency']
     
     # Defino los buffers
-    input_buffer = np.zeros([chunks_input_buffer,samples,input_channels])
-    output_buffer = np.zeros(chunks_output_buffer)
-    output_buffer[0] = 0.5
+    input_buffer = np.zeros([chunks_buffer,ai_samples,ai_channels])
+    output_buffer_duty_cycle = np.ones(chunks_buffer)*initial_pid_duty_cycle
+    output_buffer_frequency = np.ones(chunks_buffer)*initial_pid_frequency
           
     # Semaforos
     semaphore1 = threading.Semaphore(0)
     semaphore2 = threading.Semaphore(0)
-    
-    
-    with nidaqmx.Task() as task:
-        task.co_channels.add_co_pulse_chan_freq(counter='Dev1/ctr0',duty_cycle=0.5,freq=20.0,units=nidaqmx.constants.FrequencyUnits.HZ)
-    
-               
+           
     # Defino el thread que envia la señal          
     def producer_thread():  
         
@@ -817,15 +809,15 @@ def pid_daqmx(parametros):
             digi_s = nidaqmx.stream_writers.CounterWriter(task_do.out_stream)
             task_do.start()
                        
-            i = 1
+            i = 0
             while producer_exit[0] is False:
                 
                 semaphore2.acquire()   
     
-                digi_s.write_one_sample_pulse_frequency(frequency=200.0,duty_cycle=output_buffer[i])
+                digi_s.write_one_sample_pulse_frequency(frequency = output_buffer_frequency[i], duty_cycle = output_buffer_duty_cycle[i])
                 
                 i = i+1
-                i = i%chunks_output_buffer     
+                i = i%chunks_buffer     
                 
     
     # Defino el thread que adquiere la señal   
@@ -833,63 +825,49 @@ def pid_daqmx(parametros):
                 
         with nidaqmx.Task() as task_ai:
             task_ai.ai_channels.add_ai_voltage_chan("Dev1/ai2",max_val=5., min_val=-5.,terminal_config=constants.TerminalConfiguration.RSE)#, "Voltage")#,AIVoltageUnits.Volts)#,max_val=10., min_val=-10.)
-            task_ai.timing.cfg_samp_clk_timing(samplerate_ai,samps_per_chan=samples,sample_mode=constants.AcquisitionType.CONTINUOUS)
+            task_ai.timing.cfg_samp_clk_timing(ai_samplerate,samps_per_chan=ai_samples,sample_mode=constants.AcquisitionType.CONTINUOUS)
                 
-            i = 1
+            i = 0
             while consumer_exit[0] is False:
         
-                medicion = task_ai.read(number_of_samples_per_channel=samples)
+                medicion = task_ai.read(number_of_samples_per_channel=ai_samples)
                 medicion = np.asarray(medicion)
-                for j in range(input_channels):
-                    input_buffer[i,:,j] = medicion[j,:]  
+                medicion = np.reshape(medicion,ai_channels*ai_samples,order='F')
+                
+                for j in range(ai_channels):
+                    input_buffer[i,:,j] = medicion[j:ai_channels:]  
                 
                 semaphore1.release() 
                 
                 i = i+1
-                i = i%chunks_input_buffer                  
+                i = i%chunks_buffer                  
 
                 
     def callback_thread():
 
-        i = 1
-        j = 1
-        m = 1
+        i = 0
         while callback_exit[0] is False:        
 
-            if semaphore1._value > chunks_input_buffer:
+            if semaphore1._value > chunks_buffer:
                 print('Hay overun en la lectura! \n')
             
-            if semaphore2._value > chunks_output_buffer:
+            if semaphore2._value > chunks_buffer:
                 print('Hay overun en la escritura! \n')
             
             semaphore1.acquire()    
     
-            ## Inicio Callback 
-            medicion = input_buffer[i,:,0]            
-            valor_medio_medido = np.mean(medicion)
-            vector_valor_medido[m] = valor_medio_medido
-            error = valor_medio_medido - valor_esperado
-                    
-            output_buffer[j] = output_buffer[j-1] + 0.1*error
-            if output_buffer[j] > 0.99:
-                output_buffer[j] = 0.99
-            if output_buffer[j] < 0.01:
-                output_buffer[j] = 0.01                
-            output_buffer_ant = output_buffer[j]
-            
-            vector_duty_cycle[m] = output_buffer_ant            
+            ## Inicio Callback             
+            output_buffer_duty_cycle_i, output_buffer_frequency_i = callback(i, input_buffer, output_buffer_duty_cycle, output_buffer_frequency,chunks_buffer,initial_pid_duty_cycle,initial_pid_frequency,callback_variables)          
+            output_buffer_duty_cycle[i] = output_buffer_duty_cycle_i
+            output_buffer_frequency[i] = output_buffer_frequency_i                     
             ## Fin callback
     
             semaphore2.release()
             
             i = i+1
-            i = i%chunks_input_buffer   
+            i = i%chunks_buffer   
 
-            j = j+1
-            j = j%chunks_output_buffer 
             
-            m = m+1
-            m = m%len(vector_duty_cycle)  
                                    
     # Variables de salida de los threads
     producer_exit = [False]   
@@ -922,7 +900,24 @@ def pid_daqmx(parametros):
 
 
 
+def save_to_np_file(filename,arr):
+    f_handle = open(filename, 'ab')
+    np.save(f_handle, arr)
+    f_handle.close()    
 
+
+def load_from_np_file(filename):
+
+    f = open(filename, 'rb')
+    arr = np.load(f)  
+    while True:
+        try:
+            arr = np.append(arr,np.load(f),axis=0)
+        except:
+            break
+    f.close()  
+
+    return arr    
 
 
 
