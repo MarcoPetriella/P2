@@ -80,19 +80,22 @@ def funcion(parametros):
     variables = parametros['variables']   
     callback = parametros['callback']
     
+    buffer = np.zeros(30)
+    
     for i in range(5):
-        callback(i,variables)
+        callback(i,buffer,variables)
 
 
 
 variables = {}
 variables[0] = np.zeros(10) 
 
-def callback(i,variables):
+def callback(i,buffer,variables):
     
     vector = variables[0]    
     vector[i] = i
-    print(vector)
+    buffer[i] = i
+    print(buffer)
     
     
 parametros['callback'] = callback

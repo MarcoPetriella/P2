@@ -30,17 +30,18 @@ import time
 
 
 
-def callback(i, input_buffer, output_buffer_duty_cycle, output_buffer_frequency, buffer_chunks, initial_pid_duty_cycle, initial_pid_frequency, callback_variables):
+def callback(i, input_buffer, output_buffer_duty_cycle, output_buffer_frequency, buffer_chunks, initial_pid_duty_cycle, initial_pid_frequency, callback_variables, pid_variables):
     
         # Parametros de entrada del callback
         vector_mean_ch1 = callback_variables[0]
         path_vector_mean_ch1 = callback_variables[1]
         path_duty_cycle = callback_variables[2]
+        path_input_buffer = callback_variables[3]
         
         # Parametros PID
-        valor_esperado = callback_variables[3]
-        vector_error = callback_variables[4]
-        constantes_pid = callback_variables[5]
+        valor_esperado = pid_variables[0]
+        vector_error = pid_variables[1]
+        constantes_pid = pid_variables[2]
         kp = constantes_pid[0]
         ki = constantes_pid[1]
         kd = constantes_pid[2]
@@ -68,6 +69,7 @@ def callback(i, input_buffer, output_buffer_duty_cycle, output_buffer_frequency,
         if i == buffer_chunks-1:
            save_to_np_file(path_duty_cycle,output_buffer_duty_cycle)               
            save_to_np_file(path_vector_mean_ch1,vector_mean_ch1)   
+           save_to_np_file(path_input_buffer,input_buffer)   
                    
         output_buffer_frequency_i = initial_pid_frequency
 
@@ -89,22 +91,27 @@ ai_samplerate = 50000
 vector_mean_ch1 = np.zeros(buffer_chunks) 
 path_vector_mean_ch1 = ''
 path_duty_cycle = ''
+path_input_buffer = ''
 
 # Variables Callback PID
 valor_esperado = 4.6
 vector_error = np.zeros(buffer_chunks)
-kd = 0.1
+kp = 0.1
 ki = 0.5
 kd = 0.3
-constantes_pid = [kd,ki,kd]
+constantes_pid = [kp,ki,kd]
 
+##
 callback_variables = {}
 callback_variables[0] = vector_mean_ch1
 callback_variables[1] = path_vector_mean_ch1
 callback_variables[2] = path_duty_cycle
-callback_variables[3] = valor_esperado
-callback_variables[4] = vector_error
-callback_variables[5] = constantes_pid
+callback_variables[3] = path_input_buffer
+
+pid_variables = {}
+pid_variables[0] = valor_esperado
+pid_variables[1] = vector_error
+pid_variables[2] = constantes_pid
 
 
 parametros = {}
@@ -116,5 +123,6 @@ parametros['initial_pid_duty_cycle'] = initial_pid_duty_cycle
 parametros['initial_pid_frequency'] = initial_pid_frequency
 parametros['callback'] = callback    
 parametros['callback_variables'] = callback_variables
+parametros['pid_variables'] = pid_variables
 
-pid_daqmx(parametros)
+input_buffer, output_buffer_duty_cycle, output_buffer_frequency = pid_daqmx(parametros)

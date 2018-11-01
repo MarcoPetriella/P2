@@ -786,6 +786,7 @@ def pid_daqmx(parametros):
     
     callback = parametros['callback']
     callback_variables = parametros['callback_variables']
+    pid_variables = parametros['pid_variables']
     
     initial_pid_duty_cycle = parametros['initial_pid_duty_cycle']
     initial_pid_frequency = parametros['initial_pid_frequency']
@@ -857,7 +858,7 @@ def pid_daqmx(parametros):
             semaphore1.acquire()    
     
             ## Inicio Callback             
-            output_buffer_duty_cycle_i, output_buffer_frequency_i = callback(i, input_buffer, output_buffer_duty_cycle, output_buffer_frequency, buffer_chunks, initial_pid_duty_cycle, initial_pid_frequency, callback_variables)    
+            output_buffer_duty_cycle_i, output_buffer_frequency_i = callback(i, input_buffer, output_buffer_duty_cycle, output_buffer_frequency, buffer_chunks, initial_pid_duty_cycle, initial_pid_frequency, callback_variables, pid_variables)   
             output_buffer_duty_cycle[i] = output_buffer_duty_cycle_i
             output_buffer_frequency[i] = output_buffer_frequency_i                     
             ## Fin callback
@@ -894,8 +895,7 @@ def pid_daqmx(parametros):
             time.sleep(0.2)
             print ('\n \n Medición interrumpida \n')
 
-
-
+    return input_buffer, output_buffer_duty_cycle, output_buffer_frequency
 
 
 
