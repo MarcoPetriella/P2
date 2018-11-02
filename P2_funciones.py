@@ -780,8 +780,9 @@ def pid_daqmx(parametros):
 
     buffer_chunks = parametros['buffer_chunks']
     
-    ai_channels = parametros['ai_channels']
+    ai_nbr_channels = parametros['ai_nbr_channels']
     ai_samples = parametros['ai_samples']
+    ai_channels = parametros['ai_channels']
     ai_samplerate = parametros['ai_samplerate']
     
     callback = parametros['callback']
@@ -791,10 +792,19 @@ def pid_daqmx(parametros):
     initial_do_frequency = parametros['initial_do_frequency']
     
     # Defino los buffers
-    input_buffer = np.zeros([buffer_chunks,ai_samples,ai_channels])
+    input_buffer = np.zeros([buffer_chunks,ai_samples,ai_nbr_channels])
     output_buffer_duty_cycle = np.ones(buffer_chunks)*initial_do_duty_cycle
     output_buffer_frequency = np.ones(buffer_chunks)*initial_do_frequency
-          
+    
+    # ai string
+    ai_channels_str = str(ai_channels[0])
+    if len(ai_channels) == 2:
+        ai_channels_str = ai_channels_str + ':' + str(ai_channels[1])
+    ai_channels_str = 'Dev1/ai' + ai_channels_str
+    
+    # do string
+    do_channels_str = 'Dev1/ctr0'
+    
     # Semaforos
     semaphore1 = threading.Semaphore(0)
     semaphore2 = threading.Semaphore(0)
@@ -804,7 +814,7 @@ def pid_daqmx(parametros):
         
         with nidaqmx.Task() as task_do:
             
-            task_do.co_channels.add_co_pulse_chan_freq(counter='Dev1/ctr0',duty_cycle=initial_do_duty_cycle,freq=initial_do_frequency,units=nidaqmx.constants.FrequencyUnits.HZ)
+            task_do.co_channels.add_co_pulse_chan_freq(counter=do_channels_str,duty_cycle=initial_do_duty_cycle,freq=initial_do_frequency,units=nidaqmx.constants.FrequencyUnits.HZ)
             task_do.timing.cfg_implicit_timing(sample_mode=constants.AcquisitionType.CONTINUOUS)    
             digi_s = nidaqmx.stream_writers.CounterWriter(task_do.out_stream)
             task_do.start()
@@ -824,7 +834,7 @@ def pid_daqmx(parametros):
     def consumer_thread():
                 
         with nidaqmx.Task() as task_ai:
-            task_ai.ai_channels.add_ai_voltage_chan("Dev1/ai2",max_val=5., min_val=-5.,terminal_config=constants.TerminalConfiguration.RSE)#, "Voltage")#,AIVoltageUnits.Volts)#,max_val=10., min_val=-10.)
+            task_ai.ai_channels.add_ai_voltage_chan(ai_channels_str,max_val=5., min_val=-5.,terminal_config=constants.TerminalConfiguration.RSE)#, "Voltage")#,AIVoltageUnits.Volts)#,max_val=10., min_val=-10.)
             task_ai.timing.cfg_samp_clk_timing(ai_samplerate,samps_per_chan=ai_samples,sample_mode=constants.AcquisitionType.CONTINUOUS)
                 
             i = 0
@@ -832,17 +842,18 @@ def pid_daqmx(parametros):
         
                 medicion = task_ai.read(number_of_samples_per_channel=ai_samples)
                 medicion = np.asarray(medicion)
-                medicion = np.reshape(medicion,ai_channels*ai_samples,order='F')
+                medicion = np.reshape(medicion,ai_nbr_channels*ai_samples,order='F')
                 
-                for j in range(ai_channels):
-                    input_buffer[i,:,j] = medicion[j:ai_channels:]  
+                for j in range(ai_nbr_channels):
+                    input_buffer[i,:,j] = medicion[j:ai_nbr_channels:]  
                 
                 semaphore1.release() 
                 
                 i = i+1
                 i = i%buffer_chunks                  
 
-                
+        
+    # Thread del callback        
     def callback_thread():
 
         i = 0

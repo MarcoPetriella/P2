@@ -44,6 +44,10 @@ def callback(i, input_buffer, output_buffer_duty_cycle, output_buffer_frequency,
         ki = constantes_pid[1]
         kd = constantes_pid[2]
         #####################################
+        
+        # Valores maximos y minimos de duty cycle
+        max_duty_cycle = 0.999
+        min_duty_cycle = 0.001
     
         # Leo del buffer y calculo el error
         ch1_array = input_buffer[i,:,0]          
@@ -58,17 +62,16 @@ def callback(i, input_buffer, output_buffer_duty_cycle, output_buffer_frequency,
         # Algoritmo PID
         output_buffer_duty_cycle_i = output_buffer_duty_cycle[j] + kp*error + ki*np.sum(vector_error) + kd*(vector_error[i]-vector_error[j])
         
-        if output_buffer_duty_cycle_i > 0.99:
-            output_buffer_duty_cycle_i = 0.99
-        if output_buffer_duty_cycle_i < 0.01:
-            output_buffer_duty_cycle_i = 0.01  
-
+        # Salidas de la función
+        output_buffer_duty_cycle_i = min(output_buffer_duty_cycle_i,max_duty_cycle)
+        output_buffer_duty_cycle_i = max(output_buffer_duty_cycle_i,min_duty_cycle)
+        output_buffer_frequency_i = initial_do_frequency
+        
+        # Para grabar
         if i == buffer_chunks-1:
            save_to_np_file(path_duty_cycle,output_buffer_duty_cycle)               
            save_to_np_file(path_vector_mean_ch1,vector_mean_ch1)   
            save_to_np_file(path_input_buffer,input_buffer)   
-                   
-        output_buffer_frequency_i = initial_do_frequency
 
         return output_buffer_duty_cycle_i, output_buffer_frequency_i
 
@@ -82,7 +85,8 @@ if not os.path.exists(carpeta_salida):
          
 # Variables 
 buffer_chunks = 100
-ai_channels = 1
+ai_nbr_channels = 1
+ai_channels = [1,2]
 ai_samples = 1000
 ai_samplerate = 50000
 initial_do_duty_cycle = 0.5
@@ -115,7 +119,8 @@ callback_variables[6] = constantes_pid
 
 parametros = {}
 parametros['buffer_chunks'] = buffer_chunks
-parametros['ai_channels'] = ai_channels    
+parametros['ai_nbr_channels'] = ai_nbr_channels   
+parametros['ai_channels'] = ai_channels  
 parametros['ai_samples'] = ai_samples
 parametros['ai_samplerate'] = ai_samplerate
 parametros['initial_do_duty_cycle'] = initial_do_duty_cycle
