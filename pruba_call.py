@@ -74,6 +74,8 @@ a = np.reshape(a,5,order='F')
 
 #%%
 
+import threading
+import numpy as np
 
 def funcion(parametros):
     
@@ -82,9 +84,13 @@ def funcion(parametros):
     
     buffer = np.zeros(30)
     
-    for i in range(5):
-        callback(i,buffer,variables)
+    def producer_thread():
+        for i in range(5):
+            callback(i,buffer,variables)
 
+    t1 = threading.Thread(target=producer_thread, args=[])
+    
+    t1.start()
 
 
 variables = {}
@@ -130,6 +136,8 @@ def save_to_np_file(filename,arr):
     
 
 arr = np.array([1,2,3])
+arr1 = np.array([1,2])
+
     
 save_to_np_file('holas2.npy',arr)   
 

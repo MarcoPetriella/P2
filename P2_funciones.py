@@ -790,7 +790,7 @@ def pid_daqmx(parametros):
     
     initial_do_duty_cycle = parametros['initial_do_duty_cycle']
     initial_do_frequency = parametros['initial_do_frequency']
-    
+        
     # Defino los buffers
     input_buffer = np.zeros([buffer_chunks,ai_samples,ai_nbr_channels])
     output_buffer_duty_cycle = np.ones(buffer_chunks)*initial_do_duty_cycle
@@ -872,8 +872,11 @@ def pid_daqmx(parametros):
             output_buffer_duty_cycle[i] = output_buffer_duty_cycle_i
             output_buffer_frequency[i] = output_buffer_frequency_i                     
             ## Fin callback
-    
+            
             semaphore2.release()
+
+            if (ai_samples/ai_samplerate)%(1/initial_do_frequency) != 0:
+                print('La cantidad de ciclos no es entera! \n')
             
             i = i+1
             i = i%buffer_chunks   

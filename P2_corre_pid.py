@@ -84,9 +84,9 @@ if not os.path.exists(carpeta_salida):
     os.mkdir(carpeta_salida)
          
 # Variables 
-buffer_chunks = 100
 ai_nbr_channels = 1
 ai_channels = [1,2]
+buffer_chunks = 100
 ai_samples = 1000
 ai_samplerate = 50000
 initial_do_duty_cycle = 0.5
