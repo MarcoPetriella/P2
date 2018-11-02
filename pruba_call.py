@@ -4,7 +4,7 @@ Created on Tue Oct 23 09:01:23 2018
 
 @author: Marco
 """
-
+import numpy as np
 
 def hola(a,b,c):
     
@@ -95,9 +95,10 @@ def callback(i,buffer,variables):
     vector = variables[0]    
     vector[i] = i
     buffer[i] = i
-    print(buffer)
+    print(vector)
     
-    
+  
+parametros = {}
 parametros['callback'] = callback
 parametros['variables'] = variables
 

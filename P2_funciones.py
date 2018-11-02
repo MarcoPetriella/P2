@@ -786,15 +786,14 @@ def pid_daqmx(parametros):
     
     callback = parametros['callback']
     callback_variables = parametros['callback_variables']
-    pid_variables = parametros['pid_variables']
     
-    initial_pid_duty_cycle = parametros['initial_pid_duty_cycle']
-    initial_pid_frequency = parametros['initial_pid_frequency']
+    initial_do_duty_cycle = parametros['initial_do_duty_cycle']
+    initial_do_frequency = parametros['initial_do_frequency']
     
     # Defino los buffers
     input_buffer = np.zeros([buffer_chunks,ai_samples,ai_channels])
-    output_buffer_duty_cycle = np.ones(buffer_chunks)*initial_pid_duty_cycle
-    output_buffer_frequency = np.ones(buffer_chunks)*initial_pid_frequency
+    output_buffer_duty_cycle = np.ones(buffer_chunks)*initial_do_duty_cycle
+    output_buffer_frequency = np.ones(buffer_chunks)*initial_do_frequency
           
     # Semaforos
     semaphore1 = threading.Semaphore(0)
@@ -805,7 +804,7 @@ def pid_daqmx(parametros):
         
         with nidaqmx.Task() as task_do:
             
-            task_do.co_channels.add_co_pulse_chan_freq(counter='Dev1/ctr0',duty_cycle=initial_pid_duty_cycle,freq=initial_pid_frequency,units=nidaqmx.constants.FrequencyUnits.HZ)
+            task_do.co_channels.add_co_pulse_chan_freq(counter='Dev1/ctr0',duty_cycle=initial_do_duty_cycle,freq=initial_do_frequency,units=nidaqmx.constants.FrequencyUnits.HZ)
             task_do.timing.cfg_implicit_timing(sample_mode=constants.AcquisitionType.CONTINUOUS)    
             digi_s = nidaqmx.stream_writers.CounterWriter(task_do.out_stream)
             task_do.start()
@@ -858,7 +857,7 @@ def pid_daqmx(parametros):
             semaphore1.acquire()    
     
             ## Inicio Callback             
-            output_buffer_duty_cycle_i, output_buffer_frequency_i = callback(i, input_buffer, output_buffer_duty_cycle, output_buffer_frequency, buffer_chunks, initial_pid_duty_cycle, initial_pid_frequency, callback_variables, pid_variables)   
+            output_buffer_duty_cycle_i, output_buffer_frequency_i = callback(i, input_buffer, output_buffer_duty_cycle, output_buffer_frequency, buffer_chunks, initial_do_duty_cycle, initial_do_frequency, callback_variables)   
             output_buffer_duty_cycle[i] = output_buffer_duty_cycle_i
             output_buffer_frequency[i] = output_buffer_frequency_i                     
             ## Fin callback

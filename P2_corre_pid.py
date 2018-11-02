@@ -30,33 +30,30 @@ import time
 
 
 
-def callback(i, input_buffer, output_buffer_duty_cycle, output_buffer_frequency, buffer_chunks, initial_pid_duty_cycle, initial_pid_frequency, callback_variables, pid_variables):
+def callback(i, input_buffer, output_buffer_duty_cycle, output_buffer_frequency, buffer_chunks, initial_do_duty_cycle, initial_do_frequency, callback_variables):
     
         # Parametros de entrada del callback
         vector_mean_ch1 = callback_variables[0]
         path_vector_mean_ch1 = callback_variables[1]
         path_duty_cycle = callback_variables[2]
         path_input_buffer = callback_variables[3]
-        
-        # Parametros PID
-        set_point = pid_variables[0]
-        vector_error = pid_variables[1]
-        constantes_pid = pid_variables[2]
+        set_point = callback_variables[4]
+        vector_error = callback_variables[5]
+        constantes_pid = callback_variables[6]
         kp = constantes_pid[0]
         ki = constantes_pid[1]
         kd = constantes_pid[2]
         #####################################
     
-        # Leo del buffer y 
+        # Leo del buffer y calculo el error
         ch1_array = input_buffer[i,:,0]          
         mean_ch1 = np.mean(ch1_array)
         vector_mean_ch1[i] = mean_ch1
         error = mean_ch1 - set_point
         vector_error[i] = error
 
-        j = i-1
-        if j == -1:
-            j == buffer_chunks-1
+        # Paso anterior de buffer circular
+        j = (i-1)%buffer_chunks
         
         # Algoritmo PID
         output_buffer_duty_cycle_i = output_buffer_duty_cycle[j] + kp*error + ki*np.sum(vector_error) + kd*(vector_error[i]-vector_error[j])
@@ -71,27 +68,31 @@ def callback(i, input_buffer, output_buffer_duty_cycle, output_buffer_frequency,
            save_to_np_file(path_vector_mean_ch1,vector_mean_ch1)   
            save_to_np_file(path_input_buffer,input_buffer)   
                    
-        output_buffer_frequency_i = initial_pid_frequency
+        output_buffer_frequency_i = initial_do_frequency
 
         return output_buffer_duty_cycle_i, output_buffer_frequency_i
 
 
 
 ##
+carpeta_salida = 'PID'
 
+if not os.path.exists(carpeta_salida):
+    os.mkdir(carpeta_salida)
+         
 # Variables 
 buffer_chunks = 100
-initial_pid_duty_cycle = 0.5
-initial_pid_frequency = 200
 ai_channels = 1
 ai_samples = 1000
 ai_samplerate = 50000
+initial_do_duty_cycle = 0.5
+initial_do_frequency = 200
 
 # Variables Callback
 vector_mean_ch1 = np.zeros(buffer_chunks) 
-path_vector_mean_ch1 = ''
-path_duty_cycle = ''
-path_input_buffer = ''
+path_vector_mean_ch1 = os.path.join(carpeta_salida,'vector_media.npy')
+path_duty_cycle = os.path.join(carpeta_salida,'vector_duty_cycle.npy')
+path_input_buffer = os.path.join(carpeta_salida,'input_buffer.npy')
 
 # Variables Callback PID
 set_point = 4.6
@@ -107,11 +108,9 @@ callback_variables[0] = vector_mean_ch1
 callback_variables[1] = path_vector_mean_ch1
 callback_variables[2] = path_duty_cycle
 callback_variables[3] = path_input_buffer
-
-pid_variables = {}
-pid_variables[0] = set_point
-pid_variables[1] = vector_error
-pid_variables[2] = constantes_pid
+callback_variables[4] = set_point
+callback_variables[5] = vector_error
+callback_variables[6] = constantes_pid
 
 
 parametros = {}
@@ -119,10 +118,9 @@ parametros['buffer_chunks'] = buffer_chunks
 parametros['ai_channels'] = ai_channels    
 parametros['ai_samples'] = ai_samples
 parametros['ai_samplerate'] = ai_samplerate
-parametros['initial_pid_duty_cycle'] = initial_pid_duty_cycle
-parametros['initial_pid_frequency'] = initial_pid_frequency
+parametros['initial_do_duty_cycle'] = initial_do_duty_cycle
+parametros['initial_do_frequency'] = initial_do_frequency
 parametros['callback'] = callback    
 parametros['callback_variables'] = callback_variables
-parametros['pid_variables'] = pid_variables
 
 input_buffer, output_buffer_duty_cycle, output_buffer_frequency = pid_daqmx(parametros)
