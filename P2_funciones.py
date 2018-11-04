@@ -18,18 +18,21 @@ import matplotlib.pylab as pylab
 from scipy import signal
 from sys import stdout
 import numpy.fft as fft
-import nidaqmx
-import nidaqmx.constants as constants
-import nidaqmx.stream_writers
-#import scipy.fftpack as fft 
+from matplotlib.animation import FuncAnimation
+from matplotlib.widgets import Button, Slider
+import os
+
+#import nidaqmx
+#import nidaqmx.constants as constants
+#import nidaqmx.stream_writers
     
-params = {'legend.fontsize': 'medium',
-     #     'figure.figsize': (15, 5),
-         'axes.labelsize': 'medium',
-         'axes.titlesize':'medium',
-         'xtick.labelsize':'medium',
-         'ytick.labelsize':'medium'}
-pylab.rcParams.update(params)
+#params = {'legend.fontsize': 'medium',
+#     #     'figure.figsize': (15, 5),
+#         'axes.labelsize': 'medium',
+#         'axes.titlesize':'medium',
+#         'xtick.labelsize':'medium',
+#         'ytick.labelsize':'medium'}
+#pylab.rcParams.update(params)
 
 
 def cross_correlation_using_fft(x, y):
@@ -778,23 +781,75 @@ def play_rec_nidaqmx(fs_in,fs_out,input_channels,data_out,corrige_retardos,offse
 
 def pid_daqmx(parametros):
 
-    buffer_chunks = parametros['buffer_chunks']
+    default_fontsize = 7
     
+    # Lectura de parametros
+    buffer_chunks = parametros['buffer_chunks']   
     ai_nbr_channels = parametros['ai_nbr_channels']
     ai_samples = parametros['ai_samples']
     ai_channels = parametros['ai_channels']
     ai_samplerate = parametros['ai_samplerate']
-    
-    callback = parametros['callback']
-    callback_variables = parametros['callback_variables']
-    
     initial_do_duty_cycle = parametros['initial_do_duty_cycle']
-    initial_do_frequency = parametros['initial_do_frequency']
+    initial_do_frequency = parametros['initial_do_frequency']        
+    setpoint = parametros['setpoint']
+    [kp,ki,kd]  = parametros['pid_constants']
+    save_raw_data = parametros['save_raw_data']
+    save_processed_data = parametros['save_processed_data']
+    path_data_save = parametros['path_data_save']      
+    callback_pid = parametros['callback_pid']
+    callback_pid_variables = parametros['callback_pid_variables']    
+       
+    path_raw_data = path_data_save + '_raw_data.bin'
+    path_duty_cycle_data = path_data_save + '_duty_cycle.bin'
+    path_mean_data = path_data_save + '_mean_data.bin'
+    path_pid_parameters = path_data_save + '_pid_parameters.bin'
+    
+    if save_raw_data:
+        if os.path.exists(path_raw_data):
+            os.remove(path_raw_data)
+            
+    if save_processed_data:
+        if os.path.exists(path_duty_cycle_data):
+            os.remove(path_duty_cycle_data)
+    
+        if os.path.exists(path_mean_data):
+            os.remove(path_mean_data)        
+
+        if os.path.exists(path_pid_parameters):
+            os.remove(path_pid_parameters)    
+    
+    # Sub chunks a guardar y graficar
+    if 'sub_chunk_save' in parametros:
+        sub_chunk_save = parametros['sub_chunk_save'] 
+    else:
+        sub_chunk_save = 10
         
-    # Defino los buffers
+    if 'sub_chunk_plot' in parametros:    
+        sub_chunk_plot = parametros['sub_chunk_plot'] 
+    else:
+        sub_chunk_plot = 10
+    
+    if (ai_samples/ai_samplerate)%(1/initial_do_frequency) != 0.:
+        print('La cantidad de ciclos del PWM no es entera! \n')           
+
+    # Esto es para la figura
+    if 'nbr_buffers_plot' in parametros:
+        nbr_buffers_plot = parametros['nbr_buffers_plot'] 
+    else:
+        nbr_buffers_plot = 10
+        
+    error_string = []    
+    error_string = ['']
+        
+    data_plot1 = np.zeros([buffer_chunks*nbr_buffers_plot,ai_nbr_channels])
+    data_plot2 = np.zeros(buffer_chunks*nbr_buffers_plot)
+
+    # Defino los buffers de entrada y salida
     input_buffer = np.zeros([buffer_chunks,ai_samples,ai_nbr_channels])
+    output_buffer_mean_data = np.zeros([buffer_chunks,ai_nbr_channels])
     output_buffer_duty_cycle = np.ones(buffer_chunks)*initial_do_duty_cycle
-    output_buffer_frequency = np.ones(buffer_chunks)*initial_do_frequency
+    output_buffer_error_data = np.zeros(buffer_chunks)
+    output_buffer_pid_parameters = np.zeros([buffer_chunks,4])
     
     # ai string
     ai_channels_str = str(ai_channels[0])
@@ -808,108 +863,430 @@ def pid_daqmx(parametros):
     # Semaforos
     semaphore1 = threading.Semaphore(0)
     semaphore2 = threading.Semaphore(0)
+    semaphore3 = threading.Semaphore(0)
+    semaphore4 = threading.Semaphore(0)
+    semaphore5 = threading.Semaphore(0)
            
     # Defino el thread que envia la señal          
-    def producer_thread():  
+    def consumer_thread():  
+
+        global interrupt_exit
+        interrupt_exit = [False]
         
-        with nidaqmx.Task() as task_do:
-            
-            task_do.co_channels.add_co_pulse_chan_freq(counter=do_channels_str,duty_cycle=initial_do_duty_cycle,freq=initial_do_frequency,units=nidaqmx.constants.FrequencyUnits.HZ)
-            task_do.timing.cfg_implicit_timing(sample_mode=constants.AcquisitionType.CONTINUOUS)    
-            digi_s = nidaqmx.stream_writers.CounterWriter(task_do.out_stream)
-            task_do.start()
+#        with nidaqmx.Task() as task_do:
+#            
+#            task_do.co_channels.add_co_pulse_chan_freq(counter=do_channels_str,duty_cycle=initial_do_duty_cycle,freq=initial_do_frequency,units=nidaqmx.constants.FrequencyUnits.HZ)
+#            task_do.timing.cfg_implicit_timing(sample_mode=constants.AcquisitionType.CONTINUOUS)    
+#            digi_s = nidaqmx.stream_writers.CounterWriter(task_do.out_stream)
+#            task_do.start()
+#                       
+#            i = 0
+#            while interrupt_exit[0] is False:
+#                
+#                semaphore2.acquire()   
+#    
+#                digi_s.write_one_sample_pulse_frequency(frequency = initial_do_frequency, duty_cycle = output_buffer_duty_cycle[i])
+#                
+#                i = i+1
+#                i = i%buffer_chunks     
+
+
                        
-            i = 0
-            while producer_exit[0] is False:
-                
-                semaphore2.acquire()   
-    
-                digi_s.write_one_sample_pulse_frequency(frequency = output_buffer_frequency[i], duty_cycle = output_buffer_duty_cycle[i])
-                
-                i = i+1
-                i = i%buffer_chunks     
-                
+        i = 0
+        while interrupt_exit[0] is False:
+            
+            semaphore2.acquire()   
+
+            #digi_s.write_one_sample_pulse_frequency(frequency = initial_do_frequency, duty_cycle = output_buffer_duty_cycle[i])
+            
+            i = i+1
+            i = i%buffer_chunks     
+
     
     # Defino el thread que adquiere la señal   
-    def consumer_thread():
-                
-        with nidaqmx.Task() as task_ai:
-            task_ai.ai_channels.add_ai_voltage_chan(ai_channels_str,max_val=5., min_val=-5.,terminal_config=constants.TerminalConfiguration.RSE)#, "Voltage")#,AIVoltageUnits.Volts)#,max_val=10., min_val=-10.)
-            task_ai.timing.cfg_samp_clk_timing(ai_samplerate,samps_per_chan=ai_samples,sample_mode=constants.AcquisitionType.CONTINUOUS)
-                
-            i = 0
-            while consumer_exit[0] is False:
-        
-                medicion = task_ai.read(number_of_samples_per_channel=ai_samples)
-                medicion = np.asarray(medicion)
-                medicion = np.reshape(medicion,ai_nbr_channels*ai_samples,order='F')
-                
-                for j in range(ai_nbr_channels):
-                    input_buffer[i,:,j] = medicion[j:ai_nbr_channels:]  
-                
-                semaphore1.release() 
-                
-                i = i+1
-                i = i%buffer_chunks                  
+    def producer_thread():
 
+        global interrupt_exit
+        interrupt_exit = [False]
+                
+#        with nidaqmx.Task() as task_ai:
+#            task_ai.ai_channels.add_ai_voltage_chan(ai_channels_str,max_val=5., min_val=-5.,terminal_config=constants.TerminalConfiguration.RSE)#, "Voltage")#,AIVoltageUnits.Volts)#,max_val=10., min_val=-10.)
+#            task_ai.timing.cfg_samp_clk_timing(ai_samplerate,samps_per_chan=ai_samples,sample_mode=constants.AcquisitionType.CONTINUOUS)
+#                
+#            i = 0
+#            while interrupt_exit[0] is False:
+#        
+#                medicion = task_ai.read(number_of_samples_per_channel=ai_samples)
+#                medicion = np.asarray(medicion)
+#                medicion = np.reshape(medicion,ai_nbr_channels*ai_samples,order='F')
+#                
+#                for j in range(ai_nbr_channels):
+#                    input_buffer[i,:,j] = medicion[j::ai_nbr_channels]  
+#                
+#                semaphore1.release() 
+#                semaphore3.release()
+#                
+#                i = i+1
+#                i = i%buffer_chunks                  
+
+        i = 0
+        while interrupt_exit[0] is False:
+            #medicion = task_ai.read(number_of_samples_per_channel=ai_samples)
+            #medicion = np.asarray(medicion)
+            medicion = np.zeros([ai_nbr_channels,ai_samples])
+            #medicion[0,:] = np.arange(0,ai_samples)
+            tt = i*ai_samples/ai_samplerate + np.arange(ai_samples)/ai_samples/ai_samplerate
+            medicion[0,:] = 3 + np.random.rand(ai_samples) + 0.5*np.sin(2*np.pi*0.5*tt)
+            medicion[1,:] = 1 + np.random.rand(ai_samples)
+            medicion = np.reshape(medicion,ai_nbr_channels*ai_samples,order='F')
+            
+            for j in range(ai_nbr_channels):
+                input_buffer[i,:,j] = medicion[j::ai_nbr_channels]  
+            
+            semaphore1.release() 
+            semaphore3.release()
+            
+            time.sleep(0.0005)
+            
+            i = i+1
+            i = i%buffer_chunks               
+        
         
     # Thread del callback        
     def callback_thread():
 
+        global interrupt_exit, lsetpoint, lkp, lki, lkd
+        interrupt_exit = [False]   
+        lsetpoint = [setpoint]
+        lkp = [kp]
+        lki = [ki]
+        lkd = [kd]
+        
         i = 0
-        while callback_exit[0] is False:        
+        while interrupt_exit[0] is False: 
 
             if semaphore1._value > buffer_chunks:
-                print('Hay overun en la lectura! \n')
+                error_string[0] = 'Hay overun en la lectura del input_buffer!'
+                interrupt_exit = [True]
             
             if semaphore2._value > buffer_chunks:
-                print('Hay overun en la escritura! \n')
+                error_string[0] = 'Hay overun en la escritura del output_buffer!'
+                interrupt_exit = [True]
             
             semaphore1.acquire()    
     
-            ## Inicio Callback             
-            output_buffer_duty_cycle_i, output_buffer_frequency_i = callback(i, input_buffer, output_buffer_duty_cycle, output_buffer_frequency, buffer_chunks, initial_do_duty_cycle, initial_do_frequency, callback_variables)   
+            ## Inicio Callback      
+            output_buffer_mean_data[i,:] = np.mean(input_buffer[i,:,:],axis=0)
+            output_buffer_error_data[i] = output_buffer_mean_data[i,0] - lsetpoint[0]  
+            output_buffer_pid_parameters[i,0] = lsetpoint[0] 
+            output_buffer_pid_parameters[i,1] = lkp[0] 
+            output_buffer_pid_parameters[i,2] = lki[0] 
+            output_buffer_pid_parameters[i,3] = lkd[0] 
+            output_buffer_duty_cycle_i = callback_pid(i, input_buffer, output_buffer_duty_cycle, output_buffer_mean_data, output_buffer_error_data, buffer_chunks, lsetpoint[0], lkp[0], lki[0], lkd[0], callback_pid_variables) 
             output_buffer_duty_cycle[i] = output_buffer_duty_cycle_i
-            output_buffer_frequency[i] = output_buffer_frequency_i                     
+            time.sleep(0.0005)
             ## Fin callback
             
             semaphore2.release()
-
-            if (ai_samples/ai_samplerate)%(1/initial_do_frequency) != 0:
-                print('La cantidad de ciclos no es entera! \n')
-            
+            semaphore4.release()
+            semaphore5.release()
+           
             i = i+1
             i = i%buffer_chunks   
+        
 
-                         
-    # Variables de salida de los threads
-    producer_exit = [False]   
-    consumer_exit = [False] 
-    callback_exit = [False] 
+    def data_writer1_thread(save_raw_data):
+
+        global interrupt_exit
+        interrupt_exit = [False]
+        
+        i = 0
+        
+        if not save_raw_data:
+            while interrupt_exit[0] is False:  
+                semaphore3.acquire() 
+        else:
+                        
+            while interrupt_exit[0] is False:  
+    
+                if semaphore3._value > buffer_chunks:
+                    error_string[0] = 'Hay overun en la escritura de datos raw data!'   
+                    interrupt_exit = [True]
+                
+                semaphore3.acquire() 
+                
+                if i%sub_chunk_save == 0: 
+                    j = (i-sub_chunk_save)%buffer_chunks  
+                    jj = (j+sub_chunk_save-1)%buffer_chunks + 1
+                    
+                    try:
+                        save_to_np_file(path_raw_data,input_buffer[j:jj,:,:]) 
+                    except:
+                        print('Error: No se guarda raw data')
+                                       
+                i = i+1
+                i = i%buffer_chunks              
+
+            
+            
+    def data_writer2_thread(save_processed_data):
+
+        global interrupt_exit
+        interrupt_exit = [False]
+        
+        i = 0
+        
+        if not save_processed_data:
+            while interrupt_exit[0] is False:  
+                semaphore4.acquire() 
+        else:
+    
+            while interrupt_exit[0] is False: 
+    
+                if semaphore4._value > buffer_chunks:
+                    error_string[0] = 'Hay overun en la escritura de datos duty cycle!'  
+                    interrupt_exit = [True]
+                
+                semaphore4.acquire() 
+                
+                if i%sub_chunk_save == 0:                     
+                    j = (i-sub_chunk_save)%buffer_chunks  
+                    jj = (j+sub_chunk_save-1)%buffer_chunks + 1 
+                    
+                    try:
+                        save_to_np_file(path_duty_cycle_data, output_buffer_duty_cycle[j:jj]) 
+                    except:
+                        print('Error: No se guarda duty cycle')
+    
+                    try:
+                        save_to_np_file(path_mean_data, output_buffer_mean_data[j:jj]) 
+                    except:
+                        print('Error: No se guarda mean data')
+
+                    try:
+                        save_to_np_file(path_pid_parameters, output_buffer_pid_parameters[j:jj,:]) 
+                    except:
+                        print('Error: No se guardan los parametros pid')
+         
+                i = i+1
+                i = i%buffer_chunks             
+
+        
+    
+    def plot_thread():
+        
+        global interrupt_exit, ssetpoint, skp, ski, skd, lsetpoint, lkp, lki, lkd
+        interrupt_exit = [False]
+        lsetpoint = [setpoint]
+        
+        # Boton de interrupcion
+        axnext = plt.axes([0.89, 0.02, 0.1, 0.075])
+        bnext = Button(axnext, 'Stop')
+        bnext.on_clicked(exit_callback)  
+        
+        # Slider setpoit
+        axcolor = 'lightgoldenrodyellow'
+        axsetpoint = plt.axes([0.70, 0.26, 0.15, 0.03], facecolor=axcolor)
+        ssetpoint = Slider(axsetpoint, 'Setpoint',0.001, 5.0, valinit=setpoint)
+        ssetpoint.on_changed(update_pid) 
+        ssetpoint.label.set_size(default_fontsize)
+        ssetpoint.valtext.set_size(default_fontsize)
+
+        # Slider kp
+        axkp = plt.axes([0.70, 0.215, 0.15, 0.03], facecolor=axcolor)
+        skp = Slider(axkp, 'kp',0.0, 2.0, valinit=kp)
+        skp.on_changed(update_pid) 
+        skp.label.set_size(default_fontsize)
+        skp.valtext.set_size(default_fontsize)
+
+        # Slider ki
+        axki = plt.axes([0.70, 0.17, 0.15, 0.03], facecolor=axcolor)
+        ski = Slider(axki, 'ki',0.0, 2.0, valinit=ki)
+        ski.on_changed(update_pid) 
+        ski.label.set_size(default_fontsize)
+        ski.valtext.set_size(default_fontsize)
+        
+        # Slider kd
+        axkd = plt.axes([0.70, 0.125, 0.15, 0.03], facecolor=axcolor)
+        skd = Slider(axkd, 'kd',0.0, 2.0, valinit=kd)
+        skd.on_changed(update_pid)   
+        skd.label.set_size(default_fontsize)
+        skd.valtext.set_size(default_fontsize)
+        
+        # Contador de los semaforos
+        x_semaphores = np.zeros(5)
+        
+        # Vector tiempo para los graficos
+        tiempo = np.arange(0,data_plot1.shape[0])/data_plot1.shape[0]
+        tiempo = tiempo*(ai_samples*buffer_chunks*nbr_buffers_plot/ai_samplerate) 
+        
+        # Para tiempo de medicon y de adquisicion
+        previous = datetime.datetime.now()
+        delta_t = np.array([])
+        delta_t_avg = 10
+        measure_adq_ratio = 0
+                
+        i = 0
+        while interrupt_exit[0] is False: 
+        
+            if semaphore5._value > buffer_chunks - sub_chunk_plot:
+                error_string[0] = 'Hay overun en el plot!'  
+                interrupt_exit = [True]
+            
+            semaphore5.acquire()
+            
+            if i%sub_chunk_plot == 0: 
+                
+                j = (i-sub_chunk_plot)%buffer_chunks  
+                jj = (j+sub_chunk_plot-1)%buffer_chunks + 1 
+
+                # Medición de tiempos
+                now = datetime.datetime.now()
+                delta_ti = now - previous
+                previous = now
+                now = now.strftime("%Y-%m-%d %H:%M:%S")
+                
+                delta_ti = delta_ti.total_seconds()
+                delta_t = np.append(delta_t,delta_ti)
+                if delta_t.shape[0] > delta_t_avg:
+                    delta_t = delta_t[-delta_t_avg:]
+               
+                if delta_t.mean() > 0:
+                    measure_adq_ratio = (ai_samples/ai_samplerate*sub_chunk_plot)/delta_t.mean()
+           
+                # Data
+                for k in range(ai_nbr_channels):                
+                    data_plot1[0:-sub_chunk_plot,k] = data_plot1[sub_chunk_plot:,k]
+                    data_plot1[-sub_chunk_plot:,k] = output_buffer_mean_data[j:jj,k]
+                
+                data_plot2[0:-sub_chunk_plot] = data_plot2[sub_chunk_plot:]   
+                data_plot2[-sub_chunk_plot:] = output_buffer_duty_cycle[j:jj]
+                   
+                for k in range(ai_nbr_channels): 
+                    line1[k].set_data(tiempo,data_plot1[:,k])
+                line2.set_data(tiempo,data_plot2) 
+                
+                setpoint_line.set_ydata(lsetpoint[0])
+                
+                # Textos
+                text_now.set_text(now)
+                
+                # BUffer
+                x_semaphores[0] = (semaphore1._value/buffer_chunks)*100
+                x_semaphores[1] = (semaphore2._value/buffer_chunks)*100
+                x_semaphores[2] = (semaphore3._value/buffer_chunks)*100
+                x_semaphores[3] = (semaphore4._value/buffer_chunks)*100
+                x_semaphores[4] = (semaphore5._value/buffer_chunks)*100
+                
+                txt1.set_text('%2d' % x_semaphores[0] + ' %')
+                txt2.set_text('%2d' % x_semaphores[1] + ' %')
+                txt3.set_text('%2d' % x_semaphores[2] + ' %')
+                txt4.set_text('%2d' % x_semaphores[3] + ' %')
+                txt5.set_text('%2d' % x_semaphores[4] + ' %')
+                
+                txt6.set_text('%4.2f' % measure_adq_ratio)
+                
+                fig.canvas.draw_idle()
+                
+                
+            i = i+1
+            i = i%buffer_chunks 
+            
+        ax2.text(1.60,0.20,'Medicion interrumpida',fontsize=default_fontsize-2,va='center',transform = ax2.transAxes,color='red') 
+        ax2.text(1.60,0.05,error_string[0],fontsize=default_fontsize-2,va='center',transform = ax2.transAxes,color='red') 
+        fig.canvas.draw_idle()                      
+
+    def exit_callback(event):
+        global interrupt_exit
+        error_string[0] = 'Medición interrumpida por el usuario'
+        interrupt_exit = [True] 
+        
+    def update_pid(val):
+        global lsetpoint, lkp, lki, lkd
+        lsetpoint = [ssetpoint.val]
+        lkp = [skp.val]
+        lki = [ski.val]
+        lkd = [skd.val]
+        
+    # Es para el plot  
+    tiempo = np.arange(0,data_plot1.shape[0])/data_plot1.shape[0]
+    tiempo = tiempo*(ai_samples*buffer_chunks*nbr_buffers_plot/ai_samplerate)
+    now = datetime.datetime.now()
+    now = now.strftime("%Y-%m-%d %H:%M:%S")
+  
+    fig = plt.figure(figsize=(6.5,3.7),dpi=250)
+    ax = fig.add_axes([.15, .45, .70, .45])  
+    ax1 = ax.twinx()
+    line1 = []
+    for i in range(ai_nbr_channels):
+        line, = ax.plot(tiempo,data_plot1[:,i], '-')  
+        line1.append(line)
+    line2, = ax1.plot(tiempo,data_plot2, '-',color='red')
+    text_now = ax.text(0.65,1.05,now,transform = ax.transAxes)
+    ax.set_ylim([0,5])
+    ax1.set_ylim([0,1.2])
+    ax.set_xlabel('tiempo [s]')
+    ax1.set_ylabel('duty cycle')
+    ax.set_ylabel('mean [V]')
+    
+    setpoint_line = ax.axhline(setpoint,linestyle='--',linewidth=0.5)
+      
+
+    ax2 = fig.add_axes([.15, .03, .3, .3])        
+    ax2.axis('off')
+    xi = 0.68
+    ax2.text(xi,0.95,'Procesos pendientes',fontsize=7,va='center',transform = ax2.transAxes)
+    ax2.text(xi,0.80,'Input buffer: ',fontsize=7,va='center',transform = ax2.transAxes)
+    ax2.text(xi,0.65,'Output buffer:',fontsize=7,va='center',transform = ax2.transAxes)
+    ax2.text(xi,0.50,'Raw data writer:',fontsize=7,va='center',transform = ax2.transAxes)
+    ax2.text(xi,0.35,'Processed data writer:',fontsize=7,va='center',transform = ax2.transAxes)
+    ax2.text(xi,0.20,'Plotting:',fontsize=7,va='center',transform = ax2.transAxes)
+    ax2.text(xi,0.05,'Measure acquisition ratio:',fontsize=7,va='center',transform = ax2.transAxes)
+    
+    xi = 1.53
+    txt1 = ax2.text(xi,0.80,str(0) + '%',fontsize=default_fontsize,va='center',ha='right',transform = ax2.transAxes)
+    txt2 = ax2.text(xi,0.65,str(0) + '%',fontsize=default_fontsize,va='center',ha='right',transform = ax2.transAxes)
+    txt3 = ax2.text(xi,0.50,str(0) + '%',fontsize=default_fontsize,va='center',ha='right',transform = ax2.transAxes)
+    txt4 = ax2.text(xi,0.35,str(0) + '%',fontsize=default_fontsize,va='center',ha='right',transform = ax2.transAxes)
+    txt5 = ax2.text(xi,0.20,str(0) + '%',fontsize=default_fontsize,va='center',ha='right',transform = ax2.transAxes)
+    txt6 = ax2.text(xi,0.05,str(0) + '%',fontsize=default_fontsize,va='center',ha='right',transform = ax2.transAxes)
+    
+    xi = -0.40
+    ax2.text(xi,0.95,'Parámetros de adquisición',fontsize=7,va='center',transform = ax2.transAxes)
+    ax2.text(xi,0.80,'Samplerate: ',fontsize=7,va='center',transform = ax2.transAxes)
+    ax2.text(xi,0.65,'Samples per chunk:',fontsize=7,va='center',transform = ax2.transAxes)
+    ax2.text(xi,0.50,'Nbr. chunks:',fontsize=7,va='center',transform = ax2.transAxes)
+    ax2.text(xi,0.35,'PWM frequency:',fontsize=7,va='center',transform = ax2.transAxes)
+    ax2.text(xi,0.20,'Nbr. PWM cycles per chunk:',fontsize=7,va='center',transform = ax2.transAxes)
+    ax2.text(xi,0.05,'Measure acquisition ratio:',fontsize=7,va='center',transform = ax2.transAxes)
+    
+    xi = 0.55
+    ax2.text(xi,0.80,'%6.2f' % (ai_samplerate/1000.0) + ' kHz',fontsize=default_fontsize,va='center',ha='right',transform = ax2.transAxes)
+    ax2.text(xi,0.65,'%4d' % ai_samples + ' - ' + '%6.2f' % (ai_samples/ai_samplerate*1000.) + ' ms',fontsize=default_fontsize,va='center',ha='right',transform = ax2.transAxes)
+    ax2.text(xi,0.50,'%4d' % buffer_chunks + ' - ' + '%6.2f' % (buffer_chunks*ai_samples/ai_samplerate) + ' s',fontsize=default_fontsize,va='center',ha='right',transform = ax2.transAxes)
+    ax2.text(xi,0.35,'%6.2f' % (initial_do_frequency/1000.) + ' kHz',fontsize=default_fontsize,va='center',ha='right',transform = ax2.transAxes)
+    ax2.text(xi,0.20,'%6.2f' % ((ai_samples/ai_samplerate)*(initial_do_frequency)) ,fontsize=default_fontsize,va='center',ha='right',transform = ax2.transAxes)
+    
+    
+    
+    ####
             
     # Inicio los threads    
-    print (u'\n Inicio barrido \n Presione Ctrl + c para interrumpir.')
+    print (u'\n Inicio de medición \n Presione Ctrl + c para interrumpir.')
     t1 = threading.Thread(target=producer_thread, args=[])
     t2 = threading.Thread(target=consumer_thread, args=[])
     t3 = threading.Thread(target=callback_thread, args=[])
+    t4 = threading.Thread(target=data_writer1_thread, args=[save_raw_data])
+    t5 = threading.Thread(target=data_writer2_thread, args=[save_processed_data])
+    t6 = threading.Thread(target=plot_thread, args=[])
     
     t1.start()
     t2.start()
     t3.start()
-    
-    # Salida de la medición       
-    while not producer_exit[0] or not consumer_exit[0] or not callback_exit[0]:
-        try: 
-            time.sleep(0.2)
-        except KeyboardInterrupt:
-            consumer_exit[0] = True  
-            producer_exit[0] = True  
-            callback_exit[0] = True 
-            time.sleep(0.2)
-            print ('\n \n Medición interrumpida \n')
-
-    return input_buffer, output_buffer_duty_cycle, output_buffer_frequency
-
+    t4.start()
+    t5.start()
+    t6.start()
+        
 
 
 def save_to_np_file(filename,arr):
