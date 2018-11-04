@@ -357,14 +357,14 @@ plt.show()
 
 import numpy as np
 
-a = np.arange(100)
+a = np.arange(21)
 b = np.arange(10000)
-sub_chunk_save = 10
+sub_chunk_save = 4
 
 i = 0
 m = 100
-
-i = i%100    
+    
+#%%
 
 if i%sub_chunk_save == 0:
     j = (i-sub_chunk_save)%len(a)  
@@ -374,12 +374,13 @@ if i%sub_chunk_save == 0:
     nn = (n+sub_chunk_save-1)%len(b) + 1
     
     print(j,jj,i)
-    print(n,nn,i)
-    
-    print(a[j:jj])
-    print(b[n:nn])
+    print(a[j:jj])    
 
+#    print(b[n:nn])
+ #   print(n,nn,i)
 
+i = i+1
+i = i%len(a)
 
 #%%
     
@@ -497,3 +498,69 @@ plt.axes(edgeli)
 hl = plt.axhline(2)
 
 hl.set_v
+
+
+
+hola = [0]
+
+
+
+hola = [1] + hola
+
+#%%
+
+ai_samples = 10000
+ai_nbr_channels = 1
+input_buffer = np.zeros([1000,ai_samples,ai_nbr_channels])
+
+
+delta_t = np.array([])
+
+for i in range(1000):
+    
+    medicion = []
+    for i in range(ai_nbr_channels):
+        medicion.append(i*5+np.random.rand(ai_samples))
+    
+    previous = datetime.datetime.now()
+    medicion = np.asarray(medicion)
+    for j in range(ai_nbr_channels):
+        input_buffer[i,:,j] = medicion[j::ai_nbr_channels] 
+    now = datetime.datetime.now()
+    
+    delta_ti = now - previous
+    delta_ti = delta_ti.total_seconds()*1000   
+    delta_t = np.append(delta_t,delta_ti)
+    
+
+
+
+plt.plot(input_buffer[5,:,1])
+
+
+#%%
+
+ai_samples = 10000
+ai_nbr_channels = 1
+input_buffer = np.zeros([1000,ai_samples])
+
+
+delta_t = np.array([])
+
+for i in range(1000):
+    
+    medicion = []
+    medicion.append(np.random.rand(ai_samples))
+    medicion.append(5+np.random.rand(ai_samples))    
+    
+    medicion = np.random.rand(ai_samples)
+    
+    previous = datetime.datetime.now()
+    medicion = np.asarray(medicion)
+    input_buffer[i,:] = medicion
+    now = datetime.datetime.now()
+    
+    delta_ti = now - previous
+    delta_ti = delta_ti.total_seconds()*1000   
+    delta_t = np.append(delta_t,delta_ti)
+
