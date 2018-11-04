@@ -1258,7 +1258,6 @@ def pid_daqmx(parametros):
     ax2.text(xi,0.50,'Nbr. chunks:',fontsize=7,va='center',transform = ax2.transAxes)
     ax2.text(xi,0.35,'PWM frequency:',fontsize=7,va='center',transform = ax2.transAxes)
     ax2.text(xi,0.20,'Nbr. PWM cycles per chunk:',fontsize=7,va='center',transform = ax2.transAxes)
-    ax2.text(xi,0.05,'Measure acquisition ratio:',fontsize=7,va='center',transform = ax2.transAxes)
     
     xi = 0.55
     ax2.text(xi,0.80,'%6.2f' % (ai_samplerate/1000.0) + ' kHz',fontsize=default_fontsize,va='center',ha='right',transform = ax2.transAxes)
