@@ -936,7 +936,7 @@ def pid_daqmx(parametros):
             medicion = np.zeros([ai_nbr_channels,ai_samples])
             #medicion[0,:] = np.arange(0,ai_samples)
             tt = i*ai_samples/ai_samplerate + np.arange(ai_samples)/ai_samples/ai_samplerate
-            medicion[0,:] = 3 + np.random.rand(ai_samples) + 0.5*np.sin(2*np.pi*0.5*tt)
+            medicion[0,:] = 2.1 + np.random.rand(ai_samples) + 1.0*np.sin(2*np.pi*0.2*tt)
             medicion[1,:] = 1 + np.random.rand(ai_samples)
             medicion = np.reshape(medicion,ai_nbr_channels*ai_samples,order='F')
             
@@ -1086,28 +1086,28 @@ def pid_daqmx(parametros):
         
         # Slider setpoit
         axcolor = 'lightgoldenrodyellow'
-        axsetpoint = plt.axes([0.70, 0.26, 0.15, 0.03], facecolor=axcolor)
+        axsetpoint = plt.axes([0.70, 0.250, 0.15, 0.03], facecolor=axcolor)
         ssetpoint = Slider(axsetpoint, 'Setpoint',0.001, 5.0, valinit=setpoint)
         ssetpoint.on_changed(update_pid) 
         ssetpoint.label.set_size(default_fontsize)
         ssetpoint.valtext.set_size(default_fontsize)
 
         # Slider kp
-        axkp = plt.axes([0.70, 0.215, 0.15, 0.03], facecolor=axcolor)
+        axkp = plt.axes([0.70, 0.205, 0.15, 0.03], facecolor=axcolor)
         skp = Slider(axkp, 'kp',0.0, 2.0, valinit=kp)
         skp.on_changed(update_pid) 
         skp.label.set_size(default_fontsize)
         skp.valtext.set_size(default_fontsize)
 
         # Slider ki
-        axki = plt.axes([0.70, 0.17, 0.15, 0.03], facecolor=axcolor)
+        axki = plt.axes([0.70, 0.160, 0.15, 0.03], facecolor=axcolor)
         ski = Slider(axki, 'ki',0.0, 2.0, valinit=ki)
         ski.on_changed(update_pid) 
         ski.label.set_size(default_fontsize)
         ski.valtext.set_size(default_fontsize)
         
         # Slider kd
-        axkd = plt.axes([0.70, 0.125, 0.15, 0.03], facecolor=axcolor)
+        axkd = plt.axes([0.70, 0.115, 0.15, 0.03], facecolor=axcolor)
         skd = Slider(axkd, 'kd',0.0, 2.0, valinit=kd)
         skd.on_changed(update_pid)   
         skd.label.set_size(default_fontsize)
@@ -1192,8 +1192,8 @@ def pid_daqmx(parametros):
             i = i+1
             i = i%buffer_chunks 
             
-        ax2.text(1.60,0.20,'Medicion interrumpida',fontsize=default_fontsize-2,va='center',transform = ax2.transAxes,color='red') 
-        ax2.text(1.60,0.05,error_string[0],fontsize=default_fontsize-2,va='center',transform = ax2.transAxes,color='red') 
+        ax2.text(1.60,0.17,'Medicion interrumpida',fontsize=default_fontsize-1,va='center',transform = ax2.transAxes,color='red') 
+        ax2.text(1.60,0.02,error_string[0],fontsize=default_fontsize-1,va='center',transform = ax2.transAxes,color='red') 
         fig.canvas.draw_idle()                      
 
     def exit_callback(event):
@@ -1215,14 +1215,14 @@ def pid_daqmx(parametros):
     now = now.strftime("%Y-%m-%d %H:%M:%S")
   
     fig = plt.figure(figsize=(6.5,3.7),dpi=250)
-    ax = fig.add_axes([.15, .45, .70, .45])  
+    ax = fig.add_axes([.15, .50, .70, .45])  
     ax1 = ax.twinx()
     line1 = []
     for i in range(ai_nbr_channels):
         line, = ax.plot(tiempo,data_plot1[:,i], '-')  
         line1.append(line)
     line2, = ax1.plot(tiempo,data_plot2, '-',color='red')
-    text_now = ax.text(0.65,1.05,now,transform = ax.transAxes)
+    text_now = ax.text(0.75,1.03,now,fontsize=default_fontsize,transform = ax.transAxes)
     ax.set_ylim([0,5])
     ax1.set_ylim([0,1.2])
     ax.set_xlabel('tiempo [s]')
@@ -1235,37 +1235,38 @@ def pid_daqmx(parametros):
     ax2 = fig.add_axes([.15, .03, .3, .3])        
     ax2.axis('off')
     xi = 0.68
-    ax2.text(xi,0.95,'Procesos pendientes',fontsize=7,va='center',transform = ax2.transAxes)
-    ax2.text(xi,0.80,'Input buffer: ',fontsize=7,va='center',transform = ax2.transAxes)
-    ax2.text(xi,0.65,'Output buffer:',fontsize=7,va='center',transform = ax2.transAxes)
-    ax2.text(xi,0.50,'Raw data writer:',fontsize=7,va='center',transform = ax2.transAxes)
-    ax2.text(xi,0.35,'Processed data writer:',fontsize=7,va='center',transform = ax2.transAxes)
-    ax2.text(xi,0.20,'Plotting:',fontsize=7,va='center',transform = ax2.transAxes)
-    ax2.text(xi,0.05,'Measure acquisition ratio:',fontsize=7,va='center',transform = ax2.transAxes)
+    ax2.text(xi,0.92,'Procesos pendientes',fontsize=default_fontsize,va='center',transform = ax2.transAxes)
+    ax2.text(xi,0.77,'Input buffer: ',fontsize=default_fontsize,va='center',transform = ax2.transAxes)
+    ax2.text(xi,0.62,'Output buffer:',fontsize=default_fontsize,va='center',transform = ax2.transAxes)
+    ax2.text(xi,0.47,'Raw data writer:',fontsize=default_fontsize,va='center',transform = ax2.transAxes)
+    ax2.text(xi,0.32,'Processed data writer:',fontsize=default_fontsize,va='center',transform = ax2.transAxes)
+    ax2.text(xi,0.17,'Plotting:',fontsize=default_fontsize,va='center',transform = ax2.transAxes)
+    ax2.text(xi,0.02,'Measure acquisition ratio:',fontsize=default_fontsize,va='center',transform = ax2.transAxes)
     
     xi = 1.53
-    txt1 = ax2.text(xi,0.80,str(0) + '%',fontsize=default_fontsize,va='center',ha='right',transform = ax2.transAxes)
-    txt2 = ax2.text(xi,0.65,str(0) + '%',fontsize=default_fontsize,va='center',ha='right',transform = ax2.transAxes)
-    txt3 = ax2.text(xi,0.50,str(0) + '%',fontsize=default_fontsize,va='center',ha='right',transform = ax2.transAxes)
-    txt4 = ax2.text(xi,0.35,str(0) + '%',fontsize=default_fontsize,va='center',ha='right',transform = ax2.transAxes)
-    txt5 = ax2.text(xi,0.20,str(0) + '%',fontsize=default_fontsize,va='center',ha='right',transform = ax2.transAxes)
-    txt6 = ax2.text(xi,0.05,str(0) + '%',fontsize=default_fontsize,va='center',ha='right',transform = ax2.transAxes)
+    txt1 = ax2.text(xi,0.77,str(0) + '%',fontsize=default_fontsize,va='center',ha='right',transform = ax2.transAxes)
+    txt2 = ax2.text(xi,0.62,str(0) + '%',fontsize=default_fontsize,va='center',ha='right',transform = ax2.transAxes)
+    txt3 = ax2.text(xi,0.47,str(0) + '%',fontsize=default_fontsize,va='center',ha='right',transform = ax2.transAxes)
+    txt4 = ax2.text(xi,0.32,str(0) + '%',fontsize=default_fontsize,va='center',ha='right',transform = ax2.transAxes)
+    txt5 = ax2.text(xi,0.17,str(0) + '%',fontsize=default_fontsize,va='center',ha='right',transform = ax2.transAxes)
+    txt6 = ax2.text(xi,0.02,str(0) + '%',fontsize=default_fontsize,va='center',ha='right',transform = ax2.transAxes)
     
     xi = -0.40
-    ax2.text(xi,0.95,'Parámetros de adquisición',fontsize=7,va='center',transform = ax2.transAxes)
-    ax2.text(xi,0.80,'Samplerate: ',fontsize=7,va='center',transform = ax2.transAxes)
-    ax2.text(xi,0.65,'Samples per chunk:',fontsize=7,va='center',transform = ax2.transAxes)
-    ax2.text(xi,0.50,'Nbr. chunks:',fontsize=7,va='center',transform = ax2.transAxes)
-    ax2.text(xi,0.35,'PWM frequency:',fontsize=7,va='center',transform = ax2.transAxes)
-    ax2.text(xi,0.20,'Nbr. PWM cycles per chunk:',fontsize=7,va='center',transform = ax2.transAxes)
+    ax2.text(xi,0.92,'Parámetros de adquisición',fontsize=7,va='center',transform = ax2.transAxes)
+    ax2.text(xi,0.77,'Samplerate: ',fontsize=7,va='center',transform = ax2.transAxes)
+    ax2.text(xi,0.62,'Samples per chunk:',fontsize=7,va='center',transform = ax2.transAxes)
+    ax2.text(xi,0.47,'Nbr. chunks:',fontsize=7,va='center',transform = ax2.transAxes)
+    ax2.text(xi,0.32,'PWM frequency:',fontsize=7,va='center',transform = ax2.transAxes)
+    ax2.text(xi,0.17,'Nbr. PWM cycles per chunk:',fontsize=7,va='center',transform = ax2.transAxes)
+    ax2.text(xi,0.02,'Save raw/processed data:',fontsize=7,va='center',transform = ax2.transAxes)
     
     xi = 0.55
-    ax2.text(xi,0.80,'%6.2f' % (ai_samplerate/1000.0) + ' kHz',fontsize=default_fontsize,va='center',ha='right',transform = ax2.transAxes)
-    ax2.text(xi,0.65,'%4d' % ai_samples + ' - ' + '%6.2f' % (ai_samples/ai_samplerate*1000.) + ' ms',fontsize=default_fontsize,va='center',ha='right',transform = ax2.transAxes)
-    ax2.text(xi,0.50,'%4d' % buffer_chunks + ' - ' + '%6.2f' % (buffer_chunks*ai_samples/ai_samplerate) + ' s',fontsize=default_fontsize,va='center',ha='right',transform = ax2.transAxes)
-    ax2.text(xi,0.35,'%6.2f' % (initial_do_frequency/1000.) + ' kHz',fontsize=default_fontsize,va='center',ha='right',transform = ax2.transAxes)
-    ax2.text(xi,0.20,'%6.2f' % ((ai_samples/ai_samplerate)*(initial_do_frequency)) ,fontsize=default_fontsize,va='center',ha='right',transform = ax2.transAxes)
-    
+    ax2.text(xi,0.77,'%6.2f' % (ai_samplerate/1000.0) + ' kHz',fontsize=default_fontsize,va='center',ha='right',transform = ax2.transAxes)
+    ax2.text(xi,0.62,'%4d' % ai_samples + ' - ' + '%6.2f' % (ai_samples/ai_samplerate*1000.) + ' ms',fontsize=default_fontsize,va='center',ha='right',transform = ax2.transAxes)
+    ax2.text(xi,0.47,'%4d' % buffer_chunks + ' - ' + '%6.2f' % (buffer_chunks*ai_samples/ai_samplerate) + ' s',fontsize=default_fontsize,va='center',ha='right',transform = ax2.transAxes)
+    ax2.text(xi,0.32,'%6.2f' % (initial_do_frequency/1000.) + ' kHz',fontsize=default_fontsize,va='center',ha='right',transform = ax2.transAxes)
+    ax2.text(xi,0.17,'%6.2f' % ((ai_samples/ai_samplerate)*(initial_do_frequency)) ,fontsize=default_fontsize,va='center',ha='right',transform = ax2.transAxes)
+    ax2.text(xi,0.02, str(save_raw_data) + ' / ' + str(save_processed_data),fontsize=default_fontsize,va='center',ha='right',transform = ax2.transAxes)
     
     
     ####
