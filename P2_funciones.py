@@ -1017,10 +1017,13 @@ def pid_daqmx(parametros):
     semaphore3 = threading.Semaphore(0) # Guardado de raw data
     semaphore4 = threading.Semaphore(0) # Guardado de processed data
     semaphore5 = threading.Semaphore(0) # Plot
+    
+    # Mensje de error
+    x_error = 1.6
+    y_error = 0.1
            
     # Defino el thread que envia la señal          
     def consumer_thread():  
-
         
 #        with nidaqmx.Task() as task_do:
 #            
@@ -1043,7 +1046,7 @@ def pid_daqmx(parametros):
                        
         i = 0
         while not interrupt_flag[0]:
-            
+            time.sleep(0.012)
             semaphore2.acquire()   
 
             #digi_s.write_one_sample_pulse_frequency(frequency = initial_do_frequency, duty_cycle = output_buffer_duty_cycle[i])
@@ -1054,7 +1057,6 @@ def pid_daqmx(parametros):
     
     # Defino el thread que adquiere la señal   
     def producer_thread():
-
                 
 #        with nidaqmx.Task() as task_ai:
 #            task_ai.ai_channels.add_ai_voltage_chan(ai_channels_str,max_val=5., min_val=-5.,terminal_config=constants.TerminalConfiguration.RSE)#, "Voltage")#,AIVoltageUnits.Volts)#,max_val=10., min_val=-10.)
@@ -1076,35 +1078,16 @@ def pid_daqmx(parametros):
 #                
 #                i = i+1
 #                i = i%buffer_chunks                  
-
-        previous = datetime.datetime.now()
-        delta_t = np.array([])
-        delta_t_avg = 10
         
         i = 0
         while not interrupt_flag[0]:
 
-            if not i%sub_chunk_plot:
-                now = datetime.datetime.now()
-                delta_ti = now - previous
-                previous = now
-                
-                delta_ti = delta_ti.total_seconds()
-                delta_t = np.append(delta_t,delta_ti)
-                if delta_t.shape[0] > delta_t_avg:
-                    delta_t = delta_t[-delta_t_avg:]            
-    
-                if delta_t.mean() > 0:
-                    measure_adq_ratio = (ai_samples/ai_samplerate*sub_chunk_plot)/delta_t.mean()
-                    
-                    print(delta_t.mean()/sub_chunk_plot)
-            
             #medicion = task_ai.read(number_of_samples_per_channel=ai_samples)
             #medicion = np.asarray(medicion)
             medicion = np.zeros([ai_nbr_channels,ai_samples])
             #medicion[0,:] = np.arange(0,ai_samples)
             tt = i*ai_samples/ai_samplerate + np.arange(ai_samples)/ai_samples/ai_samplerate
-            medicion[0,:] = 2.1 + np.random.rand(ai_samples) + 1.0*np.sin(2*np.pi*0.2*tt)
+            medicion[0,:] = 2.1 + 1.0*np.sin(2*np.pi*0.2*tt) + np.random.rand(ai_samples)
             medicion[1,:] = 1 + np.random.rand(ai_samples)
             medicion = np.reshape(medicion,ai_nbr_channels*ai_samples,order='F')
             
@@ -1119,8 +1102,8 @@ def pid_daqmx(parametros):
             time.sleep(0.0095)
             
             i = i+1
-            i = i%buffer_chunks               
-        
+            i = i%buffer_chunks 
+              
         
     # Thread del callback        
     def callback_thread():
@@ -1137,11 +1120,11 @@ def pid_daqmx(parametros):
 
             if semaphore1._value > buffer_chunks:
                 acquiring_error.append('Hay overrun en llenado del input_buffer!')
-                interrupt_flag[0] = True
-            
+                interrupt_flag[0] = True           
+                            
             if semaphore2._value > buffer_chunks:
                 acquiring_error.append('Hay overrun en el vaciado del output_buffer!')
-                interrupt_flag[0] = True
+                interrupt_flag[0] = True              
             
             semaphore1.acquire()    
     
@@ -1165,13 +1148,17 @@ def pid_daqmx(parametros):
             
             if not i%sub_chunk_plot:
                 semaphore5.release()
+                
+            if interrupt_flag[0]:   
+                print_error(ax2,x_error,y_error,acquiring_error,default_fontsize-1)
+                fig.canvas.draw_idle()                   
            
             i = i+1
             i = i%buffer_chunks   
-        
+       
 
     def data_writer1_thread(save_raw_data):
-        
+                
         i = 0
         
         if not save_raw_data:
@@ -1181,9 +1168,9 @@ def pid_daqmx(parametros):
                         
             while not interrupt_flag[0]:  
     
-                if semaphore3._value > buffer_chunks:
+                if semaphore3._value > buffer_chunks/sub_chunk_save:
                     acquiring_error.append('Hay overrun en la escritura de datos raw data!')   
-                    interrupt_flag[0] = True
+                    interrupt_flag[0] = True                 
                 
                 semaphore3.acquire() 
                 
@@ -1196,14 +1183,22 @@ def pid_daqmx(parametros):
                 except:
                     warnings.append('Error: No se guarda raw data')
                     warnings_flag[0] = True
+                    
+                if warnings_flag[0]: 
+                    print_error(ax2,x_error,y_error,warnings,default_fontsize-1)
+                    fig.canvas.draw_idle()
+                    warnings_flag[0] = False   
+                    
+                if interrupt_flag[0]:   
+                    print_error(ax2,x_error,y_error,acquiring_error,default_fontsize-1)
+                    fig.canvas.draw_idle()                       
                                        
                 i = i+sub_chunk_save
                 i = i%buffer_chunks              
-
-            
+        
             
     def data_writer2_thread(save_processed_data):
-        
+                
         i = 0
         
         if not save_processed_data:
@@ -1213,9 +1208,9 @@ def pid_daqmx(parametros):
     
             while not interrupt_flag[0]: 
     
-                if semaphore4._value > buffer_chunks:
+                if semaphore4._value > buffer_chunks/sub_chunk_save:
                     acquiring_error.append('Hay overrun en la escritura de datos duty cycle!') 
-                    interrupt_flag[0] = True
+                    interrupt_flag[0] = True               
                 
                 semaphore4.acquire() 
                 
@@ -1227,29 +1222,39 @@ def pid_daqmx(parametros):
                     save_to_np_file(path_duty_cycle_data, output_buffer_duty_cycle[j:jj]) 
                 except:
                     warnings.append('Error: No se guarda duty cycle')
-                    warnings_flag[0] = True
+                    warnings_flag[0] = True                   
 
                 try:
                     save_to_np_file(path_mean_data, output_buffer_mean_data[j:jj]) 
                 except:
                     warnings.append('Error: No se guarda mean data')
-                    warnings_flag[0] = True
+                    warnings_flag[0] = True                 
 
                 try:
                     save_to_np_file(path_pid_constants, output_buffer_pid_constants[j:jj,:]) 
                 except:
                     warnings.append('Error: No se guardan las constantes pid')
-                    warnings_flag[0] = True
+                    warnings_flag[0] = True                  
 
                 try:
                     save_to_np_file(path_pid_terminos, output_buffer_pid_terminos[j:jj,:]) 
                 except:
                     warnings.append('Error: No se guardan los terminos pid')
                     warnings_flag[0] = True
+                    
+                if warnings_flag[0]: 
+                    print_error(ax2,x_error,y_error,warnings,default_fontsize-1)
+                    fig.canvas.draw_idle()
+                    warnings_flag[0] = False
+                    
+                if interrupt_flag[0]:   
+                    print_error(ax2,x_error,y_error,acquiring_error,default_fontsize-1)
+                    fig.canvas.draw_idle()     
+                
          
                 i = i+sub_chunk_save
                 i = i%buffer_chunks             
-
+        
 
     
     def plot_thread():
@@ -1309,9 +1314,9 @@ def pid_daqmx(parametros):
         i = 0
         while not interrupt_flag[0]: 
         
-            if semaphore5._value > buffer_chunks - sub_chunk_plot:
+            if semaphore5._value > buffer_chunks/sub_chunk_plot:
                 acquiring_error.append('Hay overrun en el plot!')  
-                interrupt_flag[0] = True
+                interrupt_flag[0] = True            
             
             semaphore5.acquire()
             
@@ -1358,9 +1363,9 @@ def pid_daqmx(parametros):
             # BUffer
             x_semaphores[0] = (semaphore1._value/buffer_chunks)*100
             x_semaphores[1] = (semaphore2._value/buffer_chunks)*100
-            x_semaphores[2] = (semaphore3._value/buffer_chunks)*100
-            x_semaphores[3] = (semaphore4._value/buffer_chunks)*100
-            x_semaphores[4] = (semaphore5._value/buffer_chunks)*100
+            x_semaphores[2] = (semaphore3._value/buffer_chunks*sub_chunk_save)*100
+            x_semaphores[3] = (semaphore4._value/buffer_chunks*sub_chunk_save)*100
+            x_semaphores[4] = (semaphore5._value/buffer_chunks*sub_chunk_plot)*100
             
             txt1.set_text('%2d' % x_semaphores[0] + ' %')
             txt2.set_text('%2d' % x_semaphores[1] + ' %')
@@ -1370,21 +1375,29 @@ def pid_daqmx(parametros):
             txt6.set_text('%4.2f' % measure_adq_ratio)
             
             if warnings_flag[0]:
-                print_error(ax2,1.60,0.10,warnings,default_fontsize-1)
+                print_error(ax2,x_error,y_error,warnings,default_fontsize-1)
+                fig.canvas.draw_idle() 
                 warnings_flag[0] = False
+
+            if interrupt_flag[0]:   
+                print_error(ax2,x_error,y_error,acquiring_error,default_fontsize-1)
+                fig.canvas.draw_idle()   
             
             fig.canvas.draw_idle()
-                
-                
+                   
             i = i+sub_chunk_plot
             i = i%buffer_chunks 
+
+        
+        print_error(ax2,x_error,y_error,acquiring_error,default_fontsize-1)
+        fig.canvas.draw_idle()
+
          
 
     def exit_callback(event):
         acquiring_error.append('Medición interrumpida por el usuario')
-        interrupt_flag[0] = True 
-        
-        print_error(ax2,1.60,0.10,acquiring_error,default_fontsize-1)
+        interrupt_flag[0] = True        
+        print_error(ax2,x_error,y_error,acquiring_error,default_fontsize-1)
         fig.canvas.draw_idle()  
         
     def update_pid(val):
@@ -1399,7 +1412,6 @@ def pid_daqmx(parametros):
         for i in range(len(s)):
             s_tot = s_tot + s[i] + '\n'          
         ax.text(x,y,s_tot,fontsize=fontsize,va='center',transform = ax.transAxes,color='red') 
-        
     
     # Inicio los threads    
     #print (u'\n Inicio de medición \n Presione Ctrl + c para interrumpir.')
@@ -1420,7 +1432,7 @@ def pid_daqmx(parametros):
         t6.start()
     else:
         initialize_error = [u'Error de inicialización'] + initialize_error
-        print_error(ax2,1.60,0.10,initialize_error,default_fontsize-1)
+        print_error(ax2,x_error,y_error,initialize_error,default_fontsize-1)
         
 
 

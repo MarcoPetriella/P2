@@ -41,7 +41,7 @@ def callback_pid(i, input_buffer, output_buffer_duty_cycle, output_buffer_mean_d
         # Valores maximos y minimos de duty cycle
         max_duty_cycle = 0.999
         min_duty_cycle = 0.001  
-        n_paso_anterior = 50
+        n_paso_anterior = 20
     
         # Paso anterior de buffer circular
         j = (i-1)%buffer_chunks
@@ -60,7 +60,8 @@ def callback_pid(i, input_buffer, output_buffer_duty_cycle, output_buffer_mean_d
         termino_d = output_buffer_error_data[i]-output_buffer_error_data[j]
         
         output_buffer_duty_cycle_i = output_buffer_duty_cycle[j] + kp*termino_p + ki*termino_i + kd*termino_d
-        #print(termino_p, termino_i, termino_d)    
+        #print(termino_p, termino_i, termino_d)  
+        #time.sleep(0.015)
     
         # Salida de la función
         output_buffer_duty_cycle_i = min(output_buffer_duty_cycle_i,max_duty_cycle)
@@ -102,7 +103,7 @@ parametros['initial_do_duty_cycle'] = initial_do_duty_cycle
 parametros['initial_do_frequency'] = initial_do_frequency
 parametros['setpoint'] = setpoint
 parametros['pid_constants'] = [kp,ki,kd]
-parametros['save_raw_data'] = False
+parametros['save_raw_data'] = True
 parametros['save_processed_data'] = True
 parametros['path_data_save'] = path_data_save
 parametros['callback_pid'] = callback_pid    

@@ -587,3 +587,14 @@ i = 10
 
 k = (i-n_paso_anterior)%buffer_chunks    
 print(k)
+
+#
+
+a = [True,True]
+all(a)
+
+while not all(a):
+    print(1)
+    
+threads_exit_flags1 = []
+threads_exit_flags1[0] = [False,False,False,False,False,False]
