@@ -357,9 +357,9 @@ plt.show()
 
 import numpy as np
 
-a = np.arange(21)
+a = np.arange(100)
 b = np.arange(10000)
-sub_chunk_save = 4
+sub_chunk_save = 10
 
 i = 0
 m = 100
@@ -564,3 +564,16 @@ for i in range(1000):
     delta_ti = delta_ti.total_seconds()*1000   
     delta_t = np.append(delta_t,delta_ti)
 
+#%%
+    
+a = np.zeros([2,3])
+
+b = np.append(a,a, axis=0)
+
+import pyqtgraph as pg
+import numpy as np
+x = np.arange(1000)
+y = np.random.normal(size=(3, 1000))
+plotWidget = pg.plot(title="Three plot curves")
+for i in range(3):
+    plotWidget.plot(x, y[i], pen=(i,3))

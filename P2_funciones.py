@@ -8,6 +8,8 @@ Created on Fri Aug 24 12:36:24 2018
 
 
 #%%
+#import matplotlib
+#matplotlib.use('GTKAgg') 
 import pyaudio
 import numpy as np
 import matplotlib.pyplot as plt
@@ -21,6 +23,10 @@ import numpy.fft as fft
 from matplotlib.animation import FuncAnimation
 from matplotlib.widgets import Button, Slider
 import os
+
+from pyqtgraph.Qt import QtGui, QtCore
+import numpy as np
+import pyqtgraph as pg
 
 #import nidaqmx
 #import nidaqmx.constants as constants
@@ -853,6 +859,21 @@ def pid_daqmx(parametros):
         if i == 1:
             initialize_error.append('No se encuentra sub_chunk_plot tal que buffer_chunks sea multiplo')     
     
+    if 'plot_rate_hz' in parametros:
+        plot_rate_hz = parametros['plot_rate_hz']
+        sub_chunk_plot = ai_samplerate/ai_samples/plot_rate_hz
+        if buffer_chunks%sub_chunk_plot != 0 or sub_chunk_plot != int(sub_chunk_plot):
+            warnings.append('El plot_rate_hz indicado no es posible, se busca el más cercano')  
+            warnings_flag[0] = True
+            sub_chunk_plot = int(sub_chunk_plot*1.5)
+            while sub_chunk_plot > 1:
+                if buffer_chunks%sub_chunk_plot == 0:
+                    break
+                sub_chunk_plot = int(sub_chunk_plot-1)
+            if sub_chunk_plot == 1:
+                initialize_error.append('No se encuentra sub_chunk_plot tal que buffer_chunks sea multiplo')  
+        sub_chunk_plot = int(sub_chunk_plot)
+    
     if (ai_samples/ai_samplerate)%(1/initial_do_frequency) != 0.:
         warnings.append('La cantidad de ciclos del PWM no es entera! \n')    
         warnings_flag[0] = True
@@ -883,11 +904,11 @@ def pid_daqmx(parametros):
     do_channels_str = 'Dev1/ctr0'
     
     # Semaforos
-    semaphore1 = threading.Semaphore(0)
-    semaphore2 = threading.Semaphore(0)
-    semaphore3 = threading.Semaphore(0)
-    semaphore4 = threading.Semaphore(0)
-    semaphore5 = threading.Semaphore(0)
+    semaphore1 = threading.Semaphore(0) # Input buffer
+    semaphore2 = threading.Semaphore(0) # Output buffer
+    semaphore3 = threading.Semaphore(0) # Guardado de raw data
+    semaphore4 = threading.Semaphore(0) # Guardado de processed data
+    semaphore5 = threading.Semaphore(0) # Plot
            
     # Defino el thread que envia la señal          
     def consumer_thread():  
@@ -947,8 +968,28 @@ def pid_daqmx(parametros):
 #                i = i+1
 #                i = i%buffer_chunks                  
 
+        previous = datetime.datetime.now()
+        delta_t = np.array([])
+        delta_t_avg = 10
+        
         i = 0
         while interrupt_flag[0] is False:
+
+            if i%sub_chunk_plot == 0:
+                now = datetime.datetime.now()
+                delta_ti = now - previous
+                previous = now
+                
+                delta_ti = delta_ti.total_seconds()
+                delta_t = np.append(delta_t,delta_ti)
+                if delta_t.shape[0] > delta_t_avg:
+                    delta_t = delta_t[-delta_t_avg:]            
+    
+                if delta_t.mean() > 0:
+                    measure_adq_ratio = (ai_samples/ai_samplerate*sub_chunk_plot)/delta_t.mean()
+                    
+                    #print(measure_adq_ratio)
+            
             #medicion = task_ai.read(number_of_samples_per_channel=ai_samples)
             #medicion = np.asarray(medicion)
             medicion = np.zeros([ai_nbr_channels,ai_samples])
@@ -964,7 +1005,7 @@ def pid_daqmx(parametros):
             semaphore1.release() 
             semaphore3.release()
             
-            time.sleep(0.0005)
+            time.sleep(0.0035)
             
             i = i+1
             i = i%buffer_chunks               
@@ -1087,7 +1128,66 @@ def pid_daqmx(parametros):
                 i = i+1
                 i = i%buffer_chunks             
 
-        
+
+#    def plot_thread():
+#
+#        #QtGui.QApplication.setGraphicsSystem('raster')
+#        #app = QtGui.QApplication([])
+#        #mw = QtGui.QMainWindow()
+#        #mw.resize(800,800)
+#        
+#        print('hola')
+#        
+#        win = pg.GraphicsWindow(title="Basic plotting examples")
+#        win.resize(1000,600)
+#        win.setWindowTitle('pyqtgraph example: Plotting')
+#        
+#        # Enable antialiasing for prettier plots
+#        pg.setConfigOptions(antialias=True)
+#        
+#        p6 = win.addPlot(title="Updating plot")
+#        curve1 = p6.plot(pen='r')
+#        curve2 = p6.plot(pen='g')
+#        curve3 = p6.plot(pen='b')   
+#    
+#        ii = 0      
+#            
+#        def update():
+#            global curve1,curve2,curve3, data, ii, p6
+#            global ai_nbr_channels,sub_chunk_plot
+#            global data_plot1, data_plot2
+#            global output_buffer_mean_data, output_buffer_duty_cycle, semaphore5
+#            
+#            print(1)
+#            semaphore5.acquire()
+#            print(1)
+#            
+#            if ii%sub_chunk_plot == 0:
+#    
+#                j = (ii-sub_chunk_plot)%buffer_chunks  
+#                jj = (j+sub_chunk_plot-1)%buffer_chunks + 1                 
+#    
+#                # Data
+#                for k in range(ai_nbr_channels):                
+#                    data_plot1[0:-sub_chunk_plot,k] = data_plot1[sub_chunk_plot:,k]
+#                    data_plot1[-sub_chunk_plot:,k] = output_buffer_mean_data[j:jj,k]
+#                
+#                data_plot2[0:-sub_chunk_plot] = data_plot2[sub_chunk_plot:]   
+#                data_plot2[-sub_chunk_plot:] = output_buffer_duty_cycle[j:jj]
+#        
+#                curve1.setData(data_plot1)
+#                curve2.setData(data_plot2)
+#                
+#                if ii == 0:
+#                    p6.enableAutoRange('xy', False)  ## stop auto-scaling after the first data set is plotted
+#        
+#            ii = ii+1
+#            ii = ii%buffer_chunks 
+#
+#        timer = QtCore.QTimer()
+#        timer.timeout.connect(update)
+#        timer.start(50)  
+#        print('chau')
     
     def plot_thread():
         
@@ -1135,15 +1235,15 @@ def pid_daqmx(parametros):
         # Contador de los semaforos
         x_semaphores = np.zeros(5)
         
-        # Vector tiempo para los graficos
-        tiempo = np.arange(0,data_plot1.shape[0])/data_plot1.shape[0]
-        tiempo = tiempo*(ai_samples*buffer_chunks*nbr_buffers_plot/ai_samplerate) 
+        # Para el plot
+        data_plot1 = np.zeros([buffer_chunks*nbr_buffers_plot,ai_nbr_channels])
+        data_plot2 = np.zeros(buffer_chunks*nbr_buffers_plot)                
         
         # Para tiempo de medicon y de adquisicion
         previous = datetime.datetime.now()
         delta_t = np.array([])
         delta_t_avg = 10
-        measure_adq_ratio = 0
+        measure_adq_ratio = 0               
                 
         i = 0
         while interrupt_flag[0] is False: 
@@ -1180,12 +1280,19 @@ def pid_daqmx(parametros):
                 
                 data_plot2[0:-sub_chunk_plot] = data_plot2[sub_chunk_plot:]   
                 data_plot2[-sub_chunk_plot:] = output_buffer_duty_cycle[j:jj]
+                 
+                    
+#                data_plot1 = np.append(data_plot1,output_buffer_mean_data[j:jj,:], axis = 0)
+#                data_plot1 = data_plot1[sub_chunk_plot:,:]
+#                data_plot2 = np.append(data_plot2,output_buffer_duty_cycle[j:jj], axis = 0)
+#                data_plot2 = data_plot2[sub_chunk_plot:]                
                    
                 for k in range(ai_nbr_channels): 
-                    line1[k].set_data(tiempo,data_plot1[:,k])
-                line2.set_data(tiempo,data_plot2) 
-                
+                    line1[k].set_ydata(data_plot1[:,k])                    
+                line2.set_ydata(data_plot2) 
+
                 setpoint_line.set_ydata(lsetpoint[0])
+           
                 
                 # Textos
                 text_now.set_text(now)
@@ -1213,10 +1320,11 @@ def pid_daqmx(parametros):
                 
             i = i+1
             i = i%buffer_chunks 
-        
-        
+              
         print_error(ax2,1.60,0.17,acquiring_error,default_fontsize-1)
-        fig.canvas.draw_idle()                      
+        fig.canvas.draw_idle()  
+
+                    
 
     def exit_callback(event):
         acquiring_error.append('Medición interrumpida por el usuario')
@@ -1244,6 +1352,7 @@ def pid_daqmx(parametros):
     fig = plt.figure(figsize=(7,3.7),dpi=250)
     ax = fig.add_axes([.15, .50, .70, .45])  
     ax1 = ax.twinx()
+    
     line1 = []
     for i in range(ai_nbr_channels):
         line, = ax.plot(tiempo,data_plot1[:,i], '-')  
@@ -1254,11 +1363,9 @@ def pid_daqmx(parametros):
     ax1.set_ylim([0,1.2])
     ax.set_xlabel('tiempo [s]')
     ax1.set_ylabel('duty cycle')
-    ax.set_ylabel('mean [V]')
-    
+    ax.set_ylabel('mean [V]')   
     setpoint_line = ax.axhline(setpoint,linestyle='--',linewidth=0.5)
       
-
     ax2 = fig.add_axes([.15, .03, .3, .3])        
     ax2.axis('off')
     xi = 0.68
@@ -1288,16 +1395,16 @@ def pid_daqmx(parametros):
     ax2.text(xi,yi - 4*dyi,'PWM frequency:',fontsize=7,va='center',transform = ax2.transAxes)
     ax2.text(xi,yi - 5*dyi,'Nbr. PWM cycles per chunk:',fontsize=7,va='center',transform = ax2.transAxes)
     ax2.text(xi,yi - 6*dyi,'Save raw/processed data:',fontsize=7,va='center',transform = ax2.transAxes)
-    ax2.text(xi,yi - 7*dyi,'Plot displaying rate:',fontsize=7,va='center',transform = ax2.transAxes)
+    ax2.text(xi,yi - 7*dyi,'Display plot chunks/rate:',fontsize=7,va='center',transform = ax2.transAxes)
     
     xi = 0.55
     ax2.text(xi,yi - 1*dyi,'%6.2f' % (ai_samplerate/1000.0) + ' kHz',fontsize=default_fontsize,va='center',ha='right',transform = ax2.transAxes)
-    ax2.text(xi,yi - 2*dyi,'%4d' % ai_samples + ' - ' + '%6.2f' % (ai_samples/ai_samplerate*1000.) + ' ms',fontsize=default_fontsize,va='center',ha='right',transform = ax2.transAxes)
-    ax2.text(xi,yi - 3*dyi,'%4d' % buffer_chunks + ' - ' + '%6.2f' % (buffer_chunks*ai_samples/ai_samplerate) + ' s',fontsize=default_fontsize,va='center',ha='right',transform = ax2.transAxes)
+    ax2.text(xi,yi - 2*dyi,'%4d' % ai_samples + ' / ' + '%6.2f' % (ai_samples/ai_samplerate*1000.) + ' ms',fontsize=default_fontsize,va='center',ha='right',transform = ax2.transAxes)
+    ax2.text(xi,yi - 3*dyi,'%4d' % buffer_chunks + ' / ' + '%6.2f' % (buffer_chunks*ai_samples/ai_samplerate) + ' s',fontsize=default_fontsize,va='center',ha='right',transform = ax2.transAxes)
     ax2.text(xi,yi - 4*dyi,'%6.2f' % (initial_do_frequency/1000.) + ' kHz',fontsize=default_fontsize,va='center',ha='right',transform = ax2.transAxes)
     ax2.text(xi,yi - 5*dyi,'%6.2f' % ((ai_samples/ai_samplerate)*(initial_do_frequency)) ,fontsize=default_fontsize,va='center',ha='right',transform = ax2.transAxes)
     ax2.text(xi,yi - 6*dyi, str(save_raw_data) + ' / ' + str(save_processed_data),fontsize=default_fontsize,va='center',ha='right',transform = ax2.transAxes)
-    ax2.text(xi,yi - 7*dyi, '%6.2f' % (ai_samplerate/ai_samples/sub_chunk_plot) + ' Hz',fontsize=default_fontsize,va='center',ha='right',transform = ax2.transAxes)
+    ax2.text(xi,yi - 7*dyi, '%4d' % sub_chunk_plot + ' / ' +'%6.2f' % (ai_samplerate/ai_samples/sub_chunk_plot) + ' Hz',fontsize=default_fontsize,va='center',ha='right',transform = ax2.transAxes)
 
     xi = 1.63
     ax2.text(xi,yi,'PID parameters',fontsize=7,va='center',transform = ax2.transAxes)
