@@ -40,19 +40,33 @@ def callback_pid(i, input_buffer, output_buffer_duty_cycle, output_buffer_mean_d
         
         # Valores maximos y minimos de duty cycle
         max_duty_cycle = 0.999
-        min_duty_cycle = 0.001
+        min_duty_cycle = 0.001  
+        n_paso_anterior = 50
     
         # Paso anterior de buffer circular
         j = (i-1)%buffer_chunks
         
+        # n-esimo paso anterior de buffer circular
+        k = (i-n_paso_anterior)%buffer_chunks        
+        
         # Algoritmo PID
-        output_buffer_duty_cycle_i = output_buffer_duty_cycle[j] + kp*output_buffer_error_data[i] + ki*np.sum(output_buffer_error_data) + kd*(output_buffer_error_data[i]-output_buffer_error_data[j])
-                
+        termino_p = output_buffer_error_data[i]
+        termino_i = 0
+        if k > i:
+            termino_i += np.sum(output_buffer_error_data[k:buffer_chunks]) + np.sum(output_buffer_error_data[0:i+1])
+        else:
+            termino_i += np.sum(output_buffer_error_data[k:i+1])
+        termino_i = termino_i/n_paso_anterior
+        termino_d = output_buffer_error_data[i]-output_buffer_error_data[j]
+        
+        output_buffer_duty_cycle_i = output_buffer_duty_cycle[j] + kp*termino_p + ki*termino_i + kd*termino_d
+        #print(termino_p, termino_i, termino_d)    
+    
         # Salida de la función
         output_buffer_duty_cycle_i = min(output_buffer_duty_cycle_i,max_duty_cycle)
         output_buffer_duty_cycle_i = max(output_buffer_duty_cycle_i,min_duty_cycle)
                 
-        return output_buffer_duty_cycle_i
+        return output_buffer_duty_cycle_i, termino_p, termino_i, termino_d
 
 
 
@@ -63,10 +77,10 @@ if not os.path.exists(carpeta_salida):
     os.mkdir(carpeta_salida)
          
 # Variables 
-ai_nbr_channels = 1
-ai_channels = [1]
-buffer_chunks = 200
-ai_samples = 200
+ai_nbr_channels = 2
+ai_channels = [1,2]
+buffer_chunks = 100
+ai_samples = 500
 ai_samplerate = 50000
 initial_do_duty_cycle = 0.5
 initial_do_frequency = 4000
@@ -78,7 +92,6 @@ path_data_save = os.path.join(carpeta_salida,'experimento')
 callback_pid_variables = {}
 
 ##
-
 parametros = {}
 parametros['buffer_chunks'] = buffer_chunks
 parametros['ai_nbr_channels'] = ai_nbr_channels   
@@ -95,7 +108,7 @@ parametros['path_data_save'] = path_data_save
 parametros['callback_pid'] = callback_pid    
 parametros['callback_pid_variables'] = callback_pid_variables
 
-parametros['sub_chunk_save'] = 100
+parametros['sub_chunk_save'] = 25
 parametros['sub_chunk_plot'] = 25
 parametros['nbr_buffers_plot'] = 10
 parametros['plot_rate_hz'] = 10
