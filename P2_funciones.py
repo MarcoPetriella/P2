@@ -825,22 +825,22 @@ def pid_daqmx(parametros):
             kp : float, constante multiplicativa
             ki : float, constante integrativa
             kd : float, constante derivativa
-            isteps : int, pasos para realizar el termino integral, debe ser menor a buffer_chunk. Y buffer_chunks multiplo de isteps, si no lo corrige el programa.
+            isteps : int, pasos para realizar el termino integral, debe ser menor a buffer_chunk.
         - save_raw_data : bool True o False, guarda el dato crudo
         - save_processed_data : bool True o False, guarda el dato procesado
-        - path_data_save : string, path de directorio donde se guardan los resultados. El directorio debe ser creado antes. Los archivos de salida son los siguientes
-        donde la primer dimensión corresponde al tiempo y cada fila es un chunk. Se puede utilizar la función load_from_np_file(filename) para abrir los archivos.
+        - path_data_save : string, path de directorio donde se guardan los resultados. El directorio debe ser creado antes.
+        La primer dimensión corresponde al tiempo, es decir cada fila es un chunk. Se puede utilizar la función load_from_np_file(filename) para abrir los archivos.
+        Los archivos de salida son los siguientes:
             path_data_save + '_raw_data.bin' : archivo binario para dato crudo. Es un array de tres dimensiones [:, ai_samples,ai_nbr_channels]
             path_data_save + '_duty_cycle.bin' : archivo binario con duty_cycle. Es un array de una dimensión.
             path_data_save + '_mean_data.bin' : archivo binario con valor medio de los canales. Es un array de dos dimensiones [:,ai_nbr_channels]
             path_data_save + '_pid_constants.bin' : archivo binario con las constantes PID. Es un un array de dos dimensiones [:,kp ki kp isteps]
             path_data_save + '_pid_terminos.bin' : archivo binario con los términos PID. Es un array de dos dimensiones [:, termino_p termino_i termino_p]                 
         - callback_pid : function, función con el callback. Ver P2_corre_pid.py con ejemplo.
-        - callback_pid_variables : lista, lista donde se colocan las variables (definidas por el usuario) que pudiera utilizar el callback
-        - sub_chunk_save : int, parámetro opcional. Especifica la cantidad de chunks que guardan por vez.
-        - sub_chunk_plot : int, parámetro opcional. Especifica la cantidad de chunks que muestran por vez.
-        - plot_rate_hz : int, parametro opcional, pisa a sub_chunk_plot. Frecuencia de muestreo en Hz. Se aconseja frecuencias menores a 15 Hz,
-        debido a la limitación de la velocidad de muestreo de matplotlib.
+        - callback_pid_variables : lista, lista donde se colocan las variables (definidas por el usuario) que pudiera utilizar el callback.
+        - sub_chunk_save : int, parámetro opcional. Especifica la cantidad de chunks que se guardan por vez.
+        - sub_chunk_plot : int, parámetro opcional. Especifica la cantidad de chunks que se muestran por vez.
+        - plot_rate_hz : int, parametro opcional, pisa a sub_chunk_plot. Frecuencia de muestreo en Hz. Se aconseja frecuencias menores a 15 Hz. Hay que ver si con animation mejora.
         
         Al comenzar la adquisicón se abre la interfaz que permite visualizar la medición de los canales analógicos y el valor de duty cycle en el grafico1. Y los términos
         multiplicativos, integrales, y derivativos del PID en el grafico2. Tambíen se permite el cambio de las constantes kp, ki, kd y la cantidad de pasos utilizados en el término integral.
@@ -914,7 +914,8 @@ def pid_daqmx(parametros):
             os.remove(path_pid_terminos)   
     
     
-    ##### ACONDICIONAMIENTO DE PARAMETROS
+    ##### ACONDICIONAMIENTO DE PARAMETROS ###########
+    #################################################
     # Sub chunks a guardar y graficar
     if 'sub_chunk_save' in parametros:
         sub_chunk_save = parametros['sub_chunk_save'] 
@@ -989,6 +990,8 @@ def pid_daqmx(parametros):
     # do string
     do_channels_str = 'Dev1/ctr0'        
 
+    ##### FIN DE ACONDICIONAMIENTO DE PARAMETROS ###########
+    #################################################
 
     ##############################
     ####### INICIO PLOT ##########     
@@ -1418,8 +1421,7 @@ def pid_daqmx(parametros):
         skd = Slider(axkd, 'kd',0.0, 2.0, valinit=kd)
         skd.on_changed(update_pid)   
         skd.label.set_size(default_fontsize)
-        skd.valtext.set_size(default_fontsize)    
-        
+        skd.valtext.set_size(default_fontsize)          
         ############### FIN BOTONES ######################        
         
         # Contador de los semaforos
@@ -1464,7 +1466,7 @@ def pid_daqmx(parametros):
                 if delta_t.mean() > 0:
                     measure_adq_ratio = (ai_samples/ai_samplerate*sub_chunk_plot)/delta_t.mean()
            
-                # Data
+                # Data update
                 data_plot1[0:-sub_chunk_plot,:] = data_plot1[sub_chunk_plot:,:]
                 data_plot1[-sub_chunk_plot:,:] = output_buffer_mean_data[j:jj,:]
                 
