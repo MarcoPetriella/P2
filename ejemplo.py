@@ -25,7 +25,7 @@ def funcion():
     ax.set_ylim([-1,1])
     
     st=time.time()
-    freq=20 #cantidad de updates por segundo
+    freq=50 #cantidad de updates por segundo
     
     
     def hola(i):
@@ -37,12 +37,13 @@ def funcion():
         line.set_ydata(data_inicial[:,i%datos_tot])
         if i%freq==0:
             print(i)
-            print(time.time()-st)#, ' seg cada ', freq,' updates'
+            print(time.time()-st)
+            #print time.time()-st, ' seg cada ', freq,' updates'
             st=time.time()
     	#ax.set_title(str(i))
         return line,
     
-    ani = animation.FuncAnimation(fig, hola,interval=50, blit=True)
+    ani = animation.FuncAnimation(fig, hola,interval=20, blit=True)
     return ani
 #        plt.show()
     

@@ -25,7 +25,6 @@ from matplotlib.widgets import Button, Slider, CheckButtons
 import os
 
 #from pyqtgraph.Qt import QtGui, QtCore
-#import numpy as np
 #import pyqtgraph as pg
 
 #import nidaqmx
@@ -785,6 +784,95 @@ def play_rec_nidaqmx(fs_in,fs_out,input_channels,data_out,corrige_retardos,offse
     return data_in, retardos
 
 
+
+
+
+
+def callback_pid(i, input_buffer, output_buffer_duty_cycle, output_buffer_pid_terminos, output_buffer_mean_data, output_buffer_error_data, output_buffer_pid_constants, buffer_chunks, callback_pid_variables):
+    
+        """
+        # Variables de entrada fijas:
+        # --------------------------
+        # i: posicion actual en el input buffer. Recordar que i [0,buffer_chunks]
+        # input_buffer: np.array [buffer_chunks, samples, ai_nbr_channels]
+        # output_buffer_duty_cycle: np.array [buffer_chunks]. La i-posicion es la vieja, y se la calcula en el callback (output_buffer_duty_cycle_i)
+        # output_buffer_pid_terminos: np.array [buffer_chunks,3] [buffer_chunks,termino_p termino_i termino_d]. La i-posicion es la vieja, y se la calcula en el callback
+        #   termino_p: termino multiplicativo
+        #   termino_i: termino integral
+        #   termino_d: termino derivativo
+        # output_buffer_mean_data: np.array [buffer_chunks,ai_nbr_channels]. La i-posicion es la actual. La columna 0 se utiliza para el PID.
+        # output_buffer_error_data: np.array [buffer_chunks]. La i-posicion es la actual: output_buffer_mean_data[i,0] - lsetpoint[0].
+        # buffer_chunks: Cantidad de chunks del buffer
+        # output_buffer_pid_constants [buffer_chunks, 5] - > [buffer_chunks, setpoint kp ki kd isteps]
+        #   setpoint: Valor de tensión del setpoint
+        #   kp: constante multiplicativa del PID
+        #   ki: constante integral del PID
+        #   kd: constante derivativa del PID
+        #   isteps: cantidad de pasos para atrás utilizados para el termino integral
+        #
+        # Variables de entrada del usuario:
+        # --------------------------------
+        # callback_pid_variables: lista con variables puestas por el usuario
+        #   Ejemplo:
+        #   variable0 = callback_pid_variables[0]
+        #   variable1 = callback_pid_variables[1]
+        #
+        # Salidas:
+        # -------
+        # output_buffer_duty_cycle_i: duty cycle calculado en el callback
+        # termino_p: termino multiplicativo que acompaña a kp
+        # termino_i: termino integral que acompaña a ki
+        # termino_d: termino derivatico que acompaña a kd
+        #####################################
+        """
+        
+        # Valores maximos y minimos de duty cycle
+        max_duty_cycle = 0.999
+        min_duty_cycle = 0.001  
+        
+        setpoint = output_buffer_pid_constants[i,0]
+        kp = output_buffer_pid_constants[i,1]
+        ki = output_buffer_pid_constants[i,2]
+        kd = output_buffer_pid_constants[i,3]
+        isteps = int(output_buffer_pid_constants[i,4])
+    
+        # Paso anterior de buffer circular
+        j = (i-1)%buffer_chunks
+                
+        # n-esimo paso anterior de buffer circular
+        k = (i-isteps)%buffer_chunks    
+        
+        # Algoritmo PID
+        termino_p = output_buffer_error_data[i]
+        termino_d = output_buffer_error_data[i]-output_buffer_error_data[j]
+        
+        # termino integral
+        termino_i = output_buffer_pid_terminos[j,1]
+        isteps_ant = output_buffer_pid_constants[j,4]
+        if isteps != isteps_ant:
+            if k >= i:
+                termino_i = np.sum(output_buffer_error_data[k:buffer_chunks]) + np.sum(output_buffer_error_data[0:i])
+            else:
+                termino_i = np.sum(output_buffer_error_data[k:i])
+            termino_i = termino_i/isteps
+        else:
+            termino_i += output_buffer_error_data[i]/isteps - output_buffer_error_data[k]/isteps
+        
+        output_buffer_duty_cycle_i = output_buffer_duty_cycle[j] + kp*termino_p + ki*termino_i + kd*termino_d
+        #time.sleep(0.015)
+    
+        # Salida de la función
+        output_buffer_duty_cycle_i = min(output_buffer_duty_cycle_i,max_duty_cycle)
+        output_buffer_duty_cycle_i = max(output_buffer_duty_cycle_i,min_duty_cycle)
+                
+        return output_buffer_duty_cycle_i, termino_p, termino_i, termino_d
+
+
+
+
+
+
+
 def pid_daqmx(parametros):
     
     """
@@ -836,6 +924,7 @@ def pid_daqmx(parametros):
             path_data_save + '_mean_data.bin' : archivo binario con valor medio de los canales. Es un array de dos dimensiones [:,ai_nbr_channels]
             path_data_save + '_pid_constants.bin' : archivo binario con las constantes PID. Es un un array de dos dimensiones [:,kp ki kp isteps]
             path_data_save + '_pid_terminos.bin' : archivo binario con los términos PID. Es un array de dos dimensiones [:, termino_p termino_i termino_p]                 
+        - show_plot : bool, actualiza el muestreo o no.
         - callback_pid : function, función con el callback. Ver P2_corre_pid.py con ejemplo.
         - callback_pid_variables : lista, lista donde se colocan las variables (definidas por el usuario) que pudiera utilizar el callback.
         - sub_chunk_save : int, parámetro opcional. Especifica la cantidad de chunks que se guardan por vez.
@@ -885,6 +974,7 @@ def pid_daqmx(parametros):
     [kp,ki,kd,isteps]  = parametros['pid_constants']
     save_raw_data = parametros['save_raw_data']
     save_processed_data = parametros['save_processed_data']
+    show_plot = parametros['show_plot']
     path_data_save = parametros['path_data_save']      
     callback_pid = parametros['callback_pid']
     callback_pid_variables = parametros['callback_pid_variables']    
@@ -1369,6 +1459,7 @@ def pid_daqmx(parametros):
     def plot_thread():
         global warnings
         global ssetpoint, skp, ski, skd,sisteps, lsetpoint, lkp, lki, lkd, listeps, bonoff
+                    
         
         lsetpoint = [setpoint]
          
@@ -1436,7 +1527,8 @@ def pid_daqmx(parametros):
         previous = datetime.datetime.now()
         delta_t = np.array([])
         delta_t_avg = 10
-        measure_adq_ratio = 0               
+        measure_adq_ratio = 0   
+           
                 
         i = 0
         while not evento_salida.is_set(): 
@@ -1446,6 +1538,9 @@ def pid_daqmx(parametros):
                     exit_callback1(error_string)         
             
             semaphore5.acquire()
+            
+            if not show_plot:
+                continue
             
             if i%sub_chunk_plot == 0: 
                 
