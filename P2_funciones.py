@@ -21,7 +21,7 @@ from scipy import signal
 from sys import stdout
 import numpy.fft as fft
 from matplotlib.animation import FuncAnimation
-from matplotlib.widgets import Button, Slider
+from matplotlib.widgets import Button, Slider, CheckButtons
 import os
 
 from pyqtgraph.Qt import QtGui, QtCore
@@ -810,9 +810,42 @@ def pid_daqmx(parametros):
         - semaphore4: se incrementa cada vez que se termina de procesar un chunk en el callback_thread y decrementa cada vez que se escribe el dato procesado en el archivo de salida (data_writer2_thread).
         - semaphore5: se incrementa cada vez que se termina de procesar un chunk en el callback_thread y decrementa cada vez que se reciben los datos procesados para el muestreo de los mismos (plot_thread).
         
-    Cada vez que se verifica overrun de cualquier semaforo en el vaciado y llenado de los buffers de entrada y salida, la medición se interrumpe.
+    Cada vez que se verifica overrun de cualquier semáforo, en el vaciado y llenado de los buffers de entrada y salida, la medición se interrumpe.
     
-    
+    La entrada de los parámetros de adquisición se realiza con un diccionario con las siguientes variables:
+        - buffer_chunks : int, cantidad de chunks de los buffers de entrada (input_buffer) y salida (output_buffer).
+        - ai_nbr_channels : int, cantidad de canales de entrada analógicos. El control PID se realiza con el primer canal especificado.
+        - ai_samples : int, cantidad de samples por chunk.
+        - ai_channels : lista de int de dos elementos, canales de medicion [canal_i, canal_f].
+        - ai_samplerate : int, frecuencia de sampleo de los canales analógicos. tener en cuenta las limitaciones del instrumento.
+        - initial_do_duty_cycle : int, duty cycle inicial del PWM
+        - initial_do_frequency : int, frecuencia del PWM
+        - setpoint : float, setpoint en [V].
+        - pid_constants: lista de 4 elementos, 3 floats y 1 int. [kp,ki,kd,isteps]:
+            kp : float, constante multiplicativa
+            ki : float, constante integrativa
+            kd : float, constante derivativa
+            isteps : int, pasos para realizar el termino integral, debe ser menor a buffer_chunk. Y buffer_chunks multiplo de isteps, si no lo corrige el programa.
+        - save_raw_data : bool True o False, guarda el dato crudo
+        - save_processed_data : bool True o False, guarda el dato procesado
+        - path_data_save : string, path de directorio donde se guardan los resultados. El directorio debe ser creado antes. Los archivos de salida son los siguientes
+        donde la primer dimensión corresponde al tiempo y cada fila es un chunk. Se puede utilizar la función load_from_np_file(filename) para abrir los archivos.
+            path_data_save + '_raw_data.bin' : archivo binario para dato crudo. Es un array de tres dimensiones [:, ai_samples,ai_nbr_channels]
+            path_data_save + '_duty_cycle.bin' : archivo binario con duty_cycle. Es un array de una dimensión.
+            path_data_save + '_mean_data.bin' : archivo binario con valor medio de los canales. Es un array de dos dimensiones [:,ai_nbr_channels]
+            path_data_save + '_pid_constants.bin' : archivo binario con las constantes PID. Es un un array de dos dimensiones [:,kp ki kp isteps]
+            path_data_save + '_pid_terminos.bin' : archivo binario con los términos PID. Es un array de dos dimensiones [:, termino_p termino_i termino_p]
+            
+            
+        - callback_pid : function, función con el callback. Ver P2_corre_pid.py con ejemplo.
+        - callback_pid_variables : lista, lista donde se colocan las variables (definidas por el usuario) que pudiera utilizar el callback
+        - sub_chunk_save : int, parámetro opcional. Especifica la cantidad de chunks que guardan por vez.
+        - sub_chunk_plot : int, parámetro opcional. Especifica la cantidad de chunks que muestran por vez.
+        - plot_rate_hz : int, parametro opcional, pisa a sub_chunk_plot. Frecuencia de muestreo en Hz. Se aconseja frecuencias menores a 15 Hz,
+        debido a la limitación de la velocidad de muestreo de matplotlib.
+        
+        Al comenzar la adquisicón se abre la interfaz que permite visualizar la medición de los canales analógicos y el valor de duty cycle en el grafico1. Y los términos
+        multiplicativos, integrales, y derivativos del PID en el grafico2. Tambíen se permite el cambio de las constantes kp, ki, kd y la cantidad de pasos utilizados en el término integral.
     
     
     """
@@ -971,7 +1004,7 @@ def pid_daqmx(parametros):
     ax.set_xlabel('tiempo [s]',fontsize = plot_fontsize)
     ax1.set_ylabel('duty cycle',fontsize = plot_fontsize)
     ax.set_ylabel('mean [V]',fontsize = plot_fontsize)   
-    setpoint_line = ax.axhline(setpoint,linestyle='--',linewidth=0.5)
+    setpoint_line = ax.axhline(setpoint,linestyle='--',linewidth=0.8)
     
     ax.xaxis.set_tick_params(labelsize=plot_fontsize)
     ax1.xaxis.set_tick_params(labelsize=plot_fontsize)
@@ -1063,6 +1096,7 @@ def pid_daqmx(parametros):
     # Mensje de error
     x_error = 1.64
     y_error = 0.08
+    
            
     # Defino el thread que envia la señal          
     def writer_thread():  
@@ -1148,13 +1182,14 @@ def pid_daqmx(parametros):
     # Thread del callback        
     def callback_thread():
 
-        global lsetpoint, lkp, lki, lkd, listeps
+        global lsetpoint, lkp, lki, lkd, listeps, pid_onoff_button
         
         lsetpoint = [setpoint]
         lkp = [kp]
         lki = [ki]
         lkd = [kd]    
         listeps = [isteps]
+        pid_onoff_button = [True]
         
         i = 0
         while not interrupt_flag[0]: 
@@ -1177,8 +1212,10 @@ def pid_daqmx(parametros):
             output_buffer_pid_constants[i,2] = lki[0] 
             output_buffer_pid_constants[i,3] = lkd[0] 
             output_buffer_pid_constants[i,4] = listeps[0] 
-            output_buffer_duty_cycle_i, termino_p, termino_i, termino_d = callback_pid(i, input_buffer, output_buffer_duty_cycle, output_buffer_mean_data, output_buffer_error_data, buffer_chunks, lsetpoint[0], lkp[0], lki[0], lkd[0],listeps[0], callback_pid_variables) 
-            output_buffer_duty_cycle[i] = output_buffer_duty_cycle_i
+            output_buffer_duty_cycle_i, termino_p, termino_i, termino_d = callback_pid(i, input_buffer, output_buffer_duty_cycle, output_buffer_mean_data, output_buffer_error_data, buffer_chunks, lsetpoint[0], lkp[0], lki[0], lkd[0],listeps[0], callback_pid_variables)             
+            if pid_onoff_button[0] is False:
+                output_buffer_duty_cycle_i = initial_do_duty_cycle
+            output_buffer_duty_cycle[i] = output_buffer_duty_cycle_i       
             output_buffer_pid_terminos[i,:] = np.array([termino_p, termino_i, termino_d])
             time.sleep(0.001)
             ## Fin callback
@@ -1299,7 +1336,7 @@ def pid_daqmx(parametros):
     
     def plot_thread():
         
-        global ssetpoint, skp, ski, skd,sisteps, lsetpoint, lkp, lki, lkd, listeps
+        global ssetpoint, skp, ski, skd,sisteps, lsetpoint, lkp, lki, lkd, listeps, bonoff
         
         lsetpoint = [setpoint]
         
@@ -1307,6 +1344,14 @@ def pid_daqmx(parametros):
         axnext = plt.axes([0.88, 0.35, 0.1, 0.075])
         bnext = Button(axnext, 'Stop')
         bnext.on_clicked(exit_callback)  
+        
+        # Check button
+        axonoff = plt.axes([0.88, 0.25, 0.1, 0.075])
+        bonoff = Button(axonoff, 'PID ON ')
+        bonoff.on_clicked(pid_onoff)  
+        bonoff.label.set_size(10)
+        bonoff.label.set_backgroundcolor([1,1,1,0.8])
+        bonoff.label.set_color([0.,0.99,0.])
         
         # Slider setpoit
         axcolor = 'lightgoldenrodyellow'
@@ -1460,6 +1505,17 @@ def pid_daqmx(parametros):
         while sisteps.val != possible_isteps[ind_is]:
             sisteps.set_val(listeps[0])
         
+    def pid_onoff(event):
+        global pid_onoff_button
+        if pid_onoff_button[0] is True:
+            pid_onoff_button[0] = False
+            bonoff.label.set_text('PID OFF')
+            bonoff.label.set_color([0.99,0.0,0.])
+        else:
+            pid_onoff_button[0] = True  
+            bonoff.label.set_text('PID ON ')
+            bonoff.label.set_color([0.,0.99,0.])
+
         
         
     def print_error(ax,x,y,s,fontsize):       

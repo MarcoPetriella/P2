@@ -104,7 +104,7 @@ if not os.path.exists(carpeta_salida):
 # Variables 
 ai_nbr_channels = 2
 ai_channels = [1,2]
-buffer_chunks = 100
+buffer_chunks = 500
 ai_samples = 500
 ai_samplerate = 50000
 initial_do_duty_cycle = 0.5
