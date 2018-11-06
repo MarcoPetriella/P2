@@ -468,9 +468,13 @@ def load_from_np_file(filename):
     return array      
 
 
-array = load_from_np_file('C:\Marco\IC\P2\PID2\experimento_raw_data.bin')
+array = load_from_np_file('PID2\experimento_pid_constants.bin')
+array = load_from_np_file('PID2\experimento_duty_cycle.bin')
 
-plt.plot(array[210,:,1])
+array = load_from_np_file('PID2\experimento_pid_terminos.bin')
+
+
+plt.plot(array[:,2])
 plt.plot(array[210,:,0])
 
 #%%
@@ -598,3 +602,19 @@ while not all(a):
     
 threads_exit_flags1 = []
 threads_exit_flags1[0] = [False,False,False,False,False,False]
+
+
+#%%
+
+
+
+def hola(a,b):
+    
+    c = a+b
+    
+    return c
+
+a = 1
+b = 2
+
+c = hola(a,b)

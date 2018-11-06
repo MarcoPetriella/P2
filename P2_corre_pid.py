@@ -30,7 +30,7 @@ import time
 
 
 
-def callback_pid(i, input_buffer, output_buffer_duty_cycle, output_buffer_mean_data, output_buffer_error_data, buffer_chunks, setpoint, kp, ki, kd, isteps, callback_pid_variables):
+def callback_pid(i, input_buffer, output_buffer_duty_cycle, output_buffer_pid_terminos, output_buffer_mean_data, output_buffer_error_data, output_buffer_pid_constants, buffer_chunks, callback_pid_variables):
     
         """
         # Variables de entrada fijas:
@@ -38,14 +38,19 @@ def callback_pid(i, input_buffer, output_buffer_duty_cycle, output_buffer_mean_d
         # i: posicion actual en el input buffer. Recordar que i [0,buffer_chunks]
         # input_buffer: np.array [buffer_chunks, samples, ai_nbr_channels]
         # output_buffer_duty_cycle: np.array [buffer_chunks]. La i-posicion es la vieja, y se la calcula en el callback (output_buffer_duty_cycle_i)
+        # output_buffer_pid_terminos: np.array [buffer_chunks,3] [buffer_chunks,termino_p termino_i termino_d]. La i-posicion es la vieja, y se la calcula en el callback
+        #   termino_p: termino multiplicativo
+        #   termino_i: termino integral
+        #   termino_d: termino derivativo
         # output_buffer_mean_data: np.array [buffer_chunks,ai_nbr_channels]. La i-posicion es la actual. La columna 0 se utiliza para el PID.
         # output_buffer_error_data: np.array [buffer_chunks]. La i-posicion es la actual: output_buffer_mean_data[i,0] - lsetpoint[0].
         # buffer_chunks: Cantidad de chunks del buffer
-        # setpoint: Valor de tensión del setpoint
-        # kp: constante multiplicativa del PID
-        # ki: constante integral del PID
-        # kd: constante derivativa del PID
-        # isteps: cantidad de pasos para atrás utilizados para el termino integral
+        # output_buffer_pid_constants [buffer_chunks, 5] - > [buffer_chunks, setpoint kp ki kd isteps]
+        #   setpoint: Valor de tensión del setpoint
+        #   kp: constante multiplicativa del PID
+        #   ki: constante integral del PID
+        #   kd: constante derivativa del PID
+        #   isteps: cantidad de pasos para atrás utilizados para el termino integral
         #
         # Variables de entrada del usuario:
         # --------------------------------
@@ -66,25 +71,36 @@ def callback_pid(i, input_buffer, output_buffer_duty_cycle, output_buffer_mean_d
         # Valores maximos y minimos de duty cycle
         max_duty_cycle = 0.999
         min_duty_cycle = 0.001  
+        
+        setpoint = output_buffer_pid_constants[i,0]
+        kp = output_buffer_pid_constants[i,1]
+        ki = output_buffer_pid_constants[i,2]
+        kd = output_buffer_pid_constants[i,3]
+        isteps = int(output_buffer_pid_constants[i,4])
     
         # Paso anterior de buffer circular
         j = (i-1)%buffer_chunks
-        
+                
         # n-esimo paso anterior de buffer circular
         k = (i-isteps)%buffer_chunks    
         
         # Algoritmo PID
         termino_p = output_buffer_error_data[i]
-        termino_i = 0
-        if k >= i:
-            termino_i += np.sum(output_buffer_error_data[k:buffer_chunks]) + np.sum(output_buffer_error_data[0:i])
-        else:
-            termino_i += np.sum(output_buffer_error_data[k:i])
-        termino_i = termino_i/isteps
         termino_d = output_buffer_error_data[i]-output_buffer_error_data[j]
         
+        # termino integral
+        termino_i = output_buffer_pid_terminos[j,1]
+        isteps_ant = output_buffer_pid_constants[j,4]
+        if isteps != isteps_ant:
+            if k >= i:
+                termino_i = np.sum(output_buffer_error_data[k:buffer_chunks]) + np.sum(output_buffer_error_data[0:i])
+            else:
+                termino_i = np.sum(output_buffer_error_data[k:i])
+            termino_i = termino_i/isteps
+        else:
+            termino_i += output_buffer_error_data[i]/isteps - output_buffer_error_data[k]/isteps
+        
         output_buffer_duty_cycle_i = output_buffer_duty_cycle[j] + kp*termino_p + ki*termino_i + kd*termino_d
-        #print(termino_p, termino_i, termino_d)  
         #time.sleep(0.015)
     
         # Salida de la función
@@ -136,7 +152,7 @@ parametros['callback_pid_variables'] = callback_pid_variables
 
 parametros['sub_chunk_save'] = 25
 parametros['sub_chunk_plot'] = 25
-parametros['nbr_buffers_plot'] = 10
-parametros['plot_rate_hz'] = 10
+parametros['nbr_buffers_plot'] = 5
+parametros['plot_rate_hz'] = 5
 
 pid_daqmx(parametros)

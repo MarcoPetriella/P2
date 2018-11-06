@@ -24,9 +24,9 @@ from matplotlib.animation import FuncAnimation
 from matplotlib.widgets import Button, Slider, CheckButtons
 import os
 
-from pyqtgraph.Qt import QtGui, QtCore
-import numpy as np
-import pyqtgraph as pg
+#from pyqtgraph.Qt import QtGui, QtCore
+#import numpy as np
+#import pyqtgraph as pg
 
 #import nidaqmx
 #import nidaqmx.constants as constants
@@ -794,32 +794,32 @@ def pid_daqmx(parametros):
     Este programa utiliza la placa de adquisición de National Instruments USB 6210 para realizar un lazo de control PID.
     Para ello utiliza las entradas analógicas para la medición del sensor y la salida digital en modo PWM para el control del actuador.
     El control se realiza variando el duty cycle del tren de pulsos enviado. El programa utiliza un esquema multithreading para la realización 
-    de las distintas tareas las cuales se describen a continuación:
-        - reader_thread: realiza la medición del sensor (chunk) y la escribe en una fila del buffer de entrada input_buffer
-        - callback_thread: realiza el procesamiento de la señal adquirida, obtiene el duty cycle de salida y la escribe en el output_buffer
-        - writer_thread: manda la señal de salida (duty cycle) a la placa, la cual está conectada al actuador
+    de las distintas tareas que se describen a continuación:
+        - reader_thread: realiza la medición del sensor (chunk de ai_samples) y la escribe en una fila del buffer de entrada input_buffer (buffer de tiop circular).
+        - callback_thread: realiza el procesamiento de la señal adquirida, obtiene el duty cycle de salida y la escribe en el output_buffer (buffer de tiop circular).
+        - writer_thread: manda el duty cycle del PWM al instrumento, el cual está conectado al actuador
         - data_writer1_thread: escribe el dato crudo del buffer_input en un archivo de salida
-        - data_writer2_thread: escribe el dato procesado por el thread callback y puesto en el output buffer, y lo escribe en un archivo de salida
+        - data_writer2_thread: escribe el dato procesado por el thread callback y alojado en el output buffer, y lo escribe en un archivo de salida
         - plot_thread: realiza el muestreo de los datos procesados en el thread callback.
         
     Para la comunicación entre los threads se utilizan los siguientes semaforos:
         - semaphore1: se incrementa cada vez que se recibe una medición (reader_thread) y decrementa cada vez que se lee un chunk en el callback_thread.
-        - semaphore2: se incrementa cada vez que se termina de procesar un chunk en el callback_thread y se escribe el output_buffer 
-        y decrementa cada vez que se envia el duty cycle al instrumento.
+        - semaphore2: se incrementa cada vez que se termina de procesar un chunk en el callback_thread y se escribe el output_buffer, 
+        y decrementa cada vez que se envia el duty cycle al instrumento en el writer_thread.
         - semaphore3: se incrementa cada vez que se recibe una medición (reader_thread) y decrementa cada vez que se escribe un chunk de dato crudo en el archivo de salida (data_writer1_thread).
         - semaphore4: se incrementa cada vez que se termina de procesar un chunk en el callback_thread y decrementa cada vez que se escribe el dato procesado en el archivo de salida (data_writer2_thread).
         - semaphore5: se incrementa cada vez que se termina de procesar un chunk en el callback_thread y decrementa cada vez que se reciben los datos procesados para el muestreo de los mismos (plot_thread).
         
-    Cada vez que se verifica overrun de cualquier semáforo, en el vaciado y llenado de los buffers de entrada y salida, la medición se interrumpe.
+    Cada vez que se verifica overrun de cualquier semáforo, en el vaciado y llenado de los buffers de entrada y salida, la medición se interrumpe y se avisa la interrupción.
     
     La entrada de los parámetros de adquisición se realiza con un diccionario con las siguientes variables:
         - buffer_chunks : int, cantidad de chunks de los buffers de entrada (input_buffer) y salida (output_buffer).
         - ai_nbr_channels : int, cantidad de canales de entrada analógicos. El control PID se realiza con el primer canal especificado.
         - ai_samples : int, cantidad de samples por chunk.
         - ai_channels : lista de int de dos elementos, canales de medicion [canal_i, canal_f].
-        - ai_samplerate : int, frecuencia de sampleo de los canales analógicos. tener en cuenta las limitaciones del instrumento.
+        - ai_samplerate : int, frecuencia de sampleo de los canales analógicos. Tener en cuenta las limitaciones del instrumento cuando se trabaja con varios canales.
         - initial_do_duty_cycle : int, duty cycle inicial del PWM
-        - initial_do_frequency : int, frecuencia del PWM
+        - initial_do_frequency : int, frecuencia del PWM . La frecuencia no varía a lo largo de la medición.
         - setpoint : float, setpoint en [V].
         - pid_constants: lista de 4 elementos, 3 floats y 1 int. [kp,ki,kd,isteps]:
             kp : float, constante multiplicativa
@@ -834,9 +834,7 @@ def pid_daqmx(parametros):
             path_data_save + '_duty_cycle.bin' : archivo binario con duty_cycle. Es un array de una dimensión.
             path_data_save + '_mean_data.bin' : archivo binario con valor medio de los canales. Es un array de dos dimensiones [:,ai_nbr_channels]
             path_data_save + '_pid_constants.bin' : archivo binario con las constantes PID. Es un un array de dos dimensiones [:,kp ki kp isteps]
-            path_data_save + '_pid_terminos.bin' : archivo binario con los términos PID. Es un array de dos dimensiones [:, termino_p termino_i termino_p]
-            
-            
+            path_data_save + '_pid_terminos.bin' : archivo binario con los términos PID. Es un array de dos dimensiones [:, termino_p termino_i termino_p]                 
         - callback_pid : function, función con el callback. Ver P2_corre_pid.py con ejemplo.
         - callback_pid_variables : lista, lista donde se colocan las variables (definidas por el usuario) que pudiera utilizar el callback
         - sub_chunk_save : int, parámetro opcional. Especifica la cantidad de chunks que guardan por vez.
@@ -846,9 +844,10 @@ def pid_daqmx(parametros):
         
         Al comenzar la adquisicón se abre la interfaz que permite visualizar la medición de los canales analógicos y el valor de duty cycle en el grafico1. Y los términos
         multiplicativos, integrales, y derivativos del PID en el grafico2. Tambíen se permite el cambio de las constantes kp, ki, kd y la cantidad de pasos utilizados en el término integral.
-    
+        
     
     """
+
     
 
     default_fontsize = 6
@@ -858,9 +857,22 @@ def pid_daqmx(parametros):
     initialize_error = []
     acquiring_error = []  
     warnings = []
-    interrupt_flag = [False]
-    warnings_flag = [False]
+    evento_warning = threading.Event()
+    evento_salida = threading.Event()
     
+    ##### Callbacks de error ########
+    def exit_callback(event):      
+        evento_salida.set()
+        acquiring_error.append('Medición interrumpida por el usuario')
+
+    def exit_callback1(error_string):        
+        evento_salida.set()
+        acquiring_error.append(error_string)
+
+    def warning_callback(warning_string):        
+        evento_warning.set()
+        warnings.append(warning_string)    
+                
     # Lectura de parametros
     buffer_chunks = parametros['buffer_chunks']   
     ai_nbr_channels = parametros['ai_nbr_channels']
@@ -901,6 +913,7 @@ def pid_daqmx(parametros):
         if os.path.exists(path_pid_terminos):
             os.remove(path_pid_terminos)   
     
+    
     ##### ACONDICIONAMIENTO DE PARAMETROS
     # Sub chunks a guardar y graficar
     if 'sub_chunk_save' in parametros:
@@ -936,8 +949,8 @@ def pid_daqmx(parametros):
         plot_rate_hz = parametros['plot_rate_hz']
         sub_chunk_plot = ai_samplerate/ai_samples/plot_rate_hz
         if buffer_chunks%sub_chunk_plot != 0 or sub_chunk_plot != int(sub_chunk_plot):
-            warnings.append('El plot_rate_hz indicado no es posible, se busca el más cercano')  
-            warnings_flag[0] = True
+            warning_string = 'El plot_rate_hz indicado no es posible, se busca el más cercano'
+            warning_callback(warning_string)
             sub_chunk_plot = int(sub_chunk_plot*1.5)
             while sub_chunk_plot > 1:
                 if buffer_chunks%sub_chunk_plot == 0:
@@ -948,18 +961,18 @@ def pid_daqmx(parametros):
     sub_chunk_plot = int(sub_chunk_plot)
     
     if (ai_samples/ai_samplerate)%(1/initial_do_frequency) != 0.:
-        warnings.append('La cantidad de ciclos del PWM no es entera! \n')    
-        warnings_flag[0] = True
+        warning_string = 'La cantidad de ciclos del PWM no es entera!'
+        warning_callback(warning_string)
 
-    # pasos de la integral del pid
-    possible_isteps = np.array([],dtype=int)
-    i = 1
-    while i < buffer_chunks+1:
-        if buffer_chunks/i == int(buffer_chunks/i):
-            possible_isteps = np.append(possible_isteps,int(buffer_chunks/i))
-        i = i+1
-    ind_is = np.argmin(np.abs(possible_isteps-isteps))
-    isteps = possible_isteps[ind_is]
+#    # pasos de la integral del pid
+#    possible_isteps = np.array([],dtype=int)
+#    i = 1
+#    while i < buffer_chunks+1:
+#        if buffer_chunks/i == int(buffer_chunks/i):
+#            possible_isteps = np.append(possible_isteps,int(buffer_chunks/i))
+#        i = i+1
+#    ind_is = np.argmin(np.abs(possible_isteps-isteps))
+#    isteps = possible_isteps[ind_is]
 
     # Largo del vector a graficar
     if 'nbr_buffers_plot' in parametros:
@@ -982,7 +995,6 @@ def pid_daqmx(parametros):
     data_plot1 = np.zeros([buffer_chunks*nbr_buffers_plot,ai_nbr_channels])
     data_plot2 = np.zeros(buffer_chunks*nbr_buffers_plot)    
     data_plot3 = np.zeros([buffer_chunks*nbr_buffers_plot,3])  
-    
     
     tiempo = np.arange(0,data_plot1.shape[0])/data_plot1.shape[0]
     tiempo = tiempo*(ai_samples*buffer_chunks*nbr_buffers_plot/ai_samplerate)
@@ -1073,11 +1085,23 @@ def pid_daqmx(parametros):
     xi_s = 0.69
     yi_s = 0.185
     dyi_s = 0.03
+
+    # Mensje de error
+    x_error = 1.64
+    y_error = 0.08
+
+    texto_error = ax2.text(x_error,y_error,'',fontsize=default_fontsize-1,va='center',transform = ax2.transAxes,color='red') 
+    
+    def print_error(s):       
+        s_tot = ''
+        for i in range(len(s)):
+            s_tot = s_tot + s[i] + '\n' 
+        texto_error.set_text(s_tot)    
     
     ####### FIN PLOT ############
-    #############################
-    
-    
+    #############################    
+
+
     # Defino los buffers de entrada y salida
     input_buffer = np.zeros([buffer_chunks,ai_samples,ai_nbr_channels])
     output_buffer_mean_data = np.zeros([buffer_chunks,ai_nbr_channels])
@@ -1093,11 +1117,15 @@ def pid_daqmx(parametros):
     semaphore4 = threading.Semaphore(0) # Guardado de processed data
     semaphore5 = threading.Semaphore(0) # Plot
     
-    # Mensje de error
-    x_error = 1.64
-    y_error = 0.08
-    
-           
+    # Inicializo variables de interfaz: setpoint, kp, ki, kd, isteps, pid_on_off
+    lsetpoint = [setpoint]
+    lkp = [kp]
+    lki = [ki]
+    lkd = [kd]
+    listeps = [isteps]
+    pid_onoff_button = [True]
+    ##############################################################################
+       
     # Defino el thread que envia la señal          
     def writer_thread():  
         
@@ -1121,15 +1149,15 @@ def pid_daqmx(parametros):
 
                        
         i = 0
-        while not interrupt_flag[0]:
-            time.sleep(0.012)
+        while not evento_salida.is_set():
+            time.sleep(0.001)
             semaphore2.acquire()   
 
             #digi_s.write_one_sample_pulse_frequency(frequency = initial_do_frequency, duty_cycle = output_buffer_duty_cycle[i])
             
             i = i+1
             i = i%buffer_chunks     
-
+    
     
     # Defino el thread que adquiere la señal   
     def reader_thread():
@@ -1154,9 +1182,30 @@ def pid_daqmx(parametros):
 #                
 #                i = i+1
 #                i = i%buffer_chunks                  
+
+
+        previous = datetime.datetime.now()
+        delta_t = np.array([])
+        delta_t_avg = 10
+        
+        medicion = np.zeros([ai_nbr_channels,ai_samples])
         
         i = 0
-        while not interrupt_flag[0]:
+        while not evento_salida.is_set():
+
+            if i%sub_chunk_plot == 0: 
+            
+                now = datetime.datetime.now()
+                delta_ti = now - previous
+                previous = now
+                now = now.strftime("%Y-%m-%d %H:%M:%S")
+                
+                delta_ti = delta_ti.total_seconds()
+                delta_t = np.append(delta_t,delta_ti)
+                if delta_t.shape[0] > delta_t_avg:
+                    delta_t = delta_t[-delta_t_avg:]    
+                
+                print(delta_t.mean()/sub_chunk_plot)
 
             #medicion = task_ai.read(number_of_samples_per_channel=ai_samples)
             #medicion = np.asarray(medicion)
@@ -1173,34 +1222,33 @@ def pid_daqmx(parametros):
             semaphore1.release() 
             semaphore3.release()
             
-            time.sleep(0.0095)
+            time.sleep(0.0090)
             
             i = i+1
             i = i%buffer_chunks 
-              
-        
+                
     # Thread del callback        
     def callback_thread():
-
-        global lsetpoint, lkp, lki, lkd, listeps, pid_onoff_button
         
+        global lsetpoint, lkp, lki, lkd, listeps, pid_onoff_button
         lsetpoint = [setpoint]
         lkp = [kp]
         lki = [ki]
-        lkd = [kd]    
+        lkd = [kd]
         listeps = [isteps]
-        pid_onoff_button = [True]
+        pid_onoff_button = [True]        
         
+              
         i = 0
-        while not interrupt_flag[0]: 
+        while not evento_salida.is_set(): 
 
             if semaphore1._value > buffer_chunks:
-                acquiring_error.append('Hay overrun en llenado del input_buffer!')
-                interrupt_flag[0] = True           
+                error_string = 'Hay overrun en llenado del input_buffer!'
+                exit_callback1(error_string)        
                             
             if semaphore2._value > buffer_chunks:
-                acquiring_error.append('Hay overrun en el vaciado del output_buffer!')
-                interrupt_flag[0] = True              
+                error_string = 'Hay overrun en el vaciado del output_buffer!'
+                exit_callback1(error_string)            
             
             semaphore1.acquire()    
     
@@ -1211,22 +1259,20 @@ def pid_daqmx(parametros):
             output_buffer_pid_constants[i,1] = lkp[0] 
             output_buffer_pid_constants[i,2] = lki[0] 
             output_buffer_pid_constants[i,3] = lkd[0] 
-            output_buffer_pid_constants[i,4] = listeps[0] 
-            output_buffer_duty_cycle_i, termino_p, termino_i, termino_d = callback_pid(i, input_buffer, output_buffer_duty_cycle, output_buffer_mean_data, output_buffer_error_data, buffer_chunks, lsetpoint[0], lkp[0], lki[0], lkd[0],listeps[0], callback_pid_variables)             
+            output_buffer_pid_constants[i,4] = listeps[0]
+            output_buffer_duty_cycle_i, termino_p, termino_i, termino_d = callback_pid(i, input_buffer, output_buffer_duty_cycle, output_buffer_pid_terminos, output_buffer_mean_data, output_buffer_error_data, output_buffer_pid_constants, buffer_chunks, callback_pid_variables)             
             if pid_onoff_button[0] is False:
                 output_buffer_duty_cycle_i = initial_do_duty_cycle
+                
+            #print(pid_onoff_button[0])
             output_buffer_duty_cycle[i] = output_buffer_duty_cycle_i       
             output_buffer_pid_terminos[i,:] = np.array([termino_p, termino_i, termino_d])
-            time.sleep(0.001)
+            time.sleep(0.005)
             ## Fin callback
             
             semaphore2.release()
             semaphore4.release()
-            semaphore5.release()
-                
-            if interrupt_flag[0]:   
-                print_error(ax2,x_error,y_error,acquiring_error,default_fontsize-1)
-                fig.canvas.draw_idle()                   
+            semaphore5.release()                                
            
             i = i+1
             i = i%buffer_chunks   
@@ -1237,15 +1283,16 @@ def pid_daqmx(parametros):
         i = 0
         
         if not save_raw_data:
-            while not interrupt_flag[0]:  
+            while not evento_salida.is_set():  
                 semaphore3.acquire() 
+                
         else:
                         
-            while not interrupt_flag[0]:  
+            while not evento_salida.is_set():  
     
                 if semaphore3._value > buffer_chunks:
-                    acquiring_error.append('Hay overrun en la escritura de datos raw data!')   
-                    interrupt_flag[0] = True                 
+                    error_string = 'Hay overrun en la escritura de datos raw data!'
+                    exit_callback1(error_string)               
                 
                 semaphore3.acquire() 
                 
@@ -1257,36 +1304,29 @@ def pid_daqmx(parametros):
                     try:
                         save_to_np_file(path_raw_data,input_buffer[j:jj,:,:]) 
                     except:
-                        warnings.append('Error: No se guarda raw data')
-                        warnings_flag[0] = True
-                        
-                    if warnings_flag[0]: 
-                        print_error(ax2,x_error,y_error,warnings,default_fontsize-1)
-                        fig.canvas.draw_idle()
-                        warnings_flag[0] = False   
-                        
-                    if interrupt_flag[0]:   
-                        print_error(ax2,x_error,y_error,acquiring_error,default_fontsize-1)
-                        fig.canvas.draw_idle()                       
+                        warning_string = 'Error: No se guarda raw data'
+                        warning_callback(warning_string)
+
+                                             
                                        
                 i = i+1
-                i = i%buffer_chunks              
-        
+                i = i%buffer_chunks   
+
             
     def data_writer2_thread(save_processed_data):
                 
         i = 0
         
         if not save_processed_data:
-            while not interrupt_flag[0]:  
+            while evento_salida.is_set():  
                 semaphore4.acquire() 
         else:
     
-            while not interrupt_flag[0]: 
+            while not evento_salida.is_set(): 
     
-                if semaphore4._value > buffer_chunks:
-                    acquiring_error.append('Hay overrun en la escritura de datos duty cycle!') 
-                    interrupt_flag[0] = True               
+                if semaphore4._value > buffer_chunks:    
+                    error_string = 'Hay overrun en la escritura de datos duty cycle!'
+                    exit_callback1(error_string)                          
                 
                 semaphore4.acquire() 
                 
@@ -1298,54 +1338,43 @@ def pid_daqmx(parametros):
                     try:
                         save_to_np_file(path_duty_cycle_data, output_buffer_duty_cycle[j:jj]) 
                     except:
-                        warnings.append('Error: No se guarda duty cycle')
-                        warnings_flag[0] = True                   
+                        warning_string = 'Error: No se guarda duty cycle'
+                        warning_callback(warning_string)                        
     
                     try:
                         save_to_np_file(path_mean_data, output_buffer_mean_data[j:jj]) 
                     except:
-                        warnings.append('Error: No se guarda mean data')
-                        warnings_flag[0] = True                 
+                        warning_string = 'Error: No se guarda mean data'
+                        warning_callback(warning_string)                             
     
                     try:
                         save_to_np_file(path_pid_constants, output_buffer_pid_constants[j:jj,:]) 
                     except:
-                        warnings.append('Error: No se guardan las constantes pid')
-                        warnings_flag[0] = True                  
+                        warning_string = 'Error: No se guardan las constantes pid'
+                        warning_callback(warning_string)                            
     
                     try:
                         save_to_np_file(path_pid_terminos, output_buffer_pid_terminos[j:jj,:]) 
                     except:
-                        warnings.append('Error: No se guardan los terminos pid')
-                        warnings_flag[0] = True
-                        
-                    if warnings_flag[0]: 
-                        print_error(ax2,x_error,y_error,warnings,default_fontsize-1)
-                        fig.canvas.draw_idle()
-                        warnings_flag[0] = False
-                        
-                    if interrupt_flag[0]:   
-                        print_error(ax2,x_error,y_error,acquiring_error,default_fontsize-1)
-                        fig.canvas.draw_idle()     
-                
-         
+                        warning_string = 'Error: No se guardan los terminos pid'
+                        warning_callback(warning_string)                           
+                                            
                 i = i+1
                 i = i%buffer_chunks             
         
-
     
     def plot_thread():
-        
+        global warnings
         global ssetpoint, skp, ski, skd,sisteps, lsetpoint, lkp, lki, lkd, listeps, bonoff
         
         lsetpoint = [setpoint]
-        
-        # Boton de interrupcion
+         
+        ############### BOTONES ######################
+        # Boton de salida
         axnext = plt.axes([0.88, 0.35, 0.1, 0.075])
         bnext = Button(axnext, 'Stop')
-        bnext.on_clicked(exit_callback)  
+        bnext.on_clicked(exit_callback) 
         
-        # Check button
         axonoff = plt.axes([0.88, 0.25, 0.1, 0.075])
         bonoff = Button(axonoff, 'PID ON ')
         bonoff.on_clicked(pid_onoff)  
@@ -1360,21 +1389,21 @@ def pid_daqmx(parametros):
         ssetpoint.on_changed(update_pid) 
         ssetpoint.label.set_size(default_fontsize)
         ssetpoint.valtext.set_size(default_fontsize)
-
+    
         # Slider kp
         axkp = plt.axes([xi_s, yi_s - 1*dyi_s, 0.10, 0.02], facecolor=axcolor)
         skp = Slider(axkp, 'kp',0.0, 2.0, valinit=kp)
         skp.on_changed(update_pid) 
         skp.label.set_size(default_fontsize)
         skp.valtext.set_size(default_fontsize)
-
+    
         # Slider ki
         axki = plt.axes([xi_s, yi_s - 2*dyi_s, 0.10, 0.02], facecolor=axcolor)
         ski = Slider(axki, 'ki',0.0, 2.0, valinit=ki)
         ski.on_changed(update_pid) 
         ski.label.set_size(default_fontsize)
         ski.valtext.set_size(default_fontsize)
-
+    
         # Slider integral steps
         axisteps = plt.axes([xi_s + 0.17, yi_s - 2*dyi_s, 0.10, 0.02], facecolor=axcolor)
         sisteps = Slider(axisteps, 'steps',0.0, buffer_chunks, valinit=isteps)
@@ -1382,14 +1411,16 @@ def pid_daqmx(parametros):
         sisteps.on_changed(update_pid) 
         sisteps.label.set_size(default_fontsize)
         sisteps.valtext.set_size(default_fontsize)
-
+    
         
         # Slider kd
         axkd = plt.axes([xi_s, yi_s - 3*dyi_s, 0.10, 0.02], facecolor=axcolor)
         skd = Slider(axkd, 'kd',0.0, 2.0, valinit=kd)
         skd.on_changed(update_pid)   
         skd.label.set_size(default_fontsize)
-        skd.valtext.set_size(default_fontsize)
+        skd.valtext.set_size(default_fontsize)    
+        
+        ############### FIN BOTONES ######################        
         
         # Contador de los semaforos
         x_semaphores = np.zeros(5)
@@ -1399,18 +1430,18 @@ def pid_daqmx(parametros):
         data_plot2 = np.zeros(buffer_chunks*nbr_buffers_plot)                
         data_plot3 = np.zeros([buffer_chunks*nbr_buffers_plot,3])
         
-        # Para tiempo de medicon y de adquisicion
+        # Para tiempo de medicion y de adquisicion
         previous = datetime.datetime.now()
         delta_t = np.array([])
         delta_t_avg = 10
         measure_adq_ratio = 0               
                 
         i = 0
-        while not interrupt_flag[0]: 
+        while not evento_salida.is_set(): 
         
             if semaphore5._value > buffer_chunks:
-                acquiring_error.append('Hay overrun en el plot!')  
-                interrupt_flag[0] = True            
+                    error_string = 'Hay overrun en el plot!'
+                    exit_callback1(error_string)         
             
             semaphore5.acquire()
             
@@ -1467,43 +1498,34 @@ def pid_daqmx(parametros):
                 txt4.set_text('%2d' % x_semaphores[3] + ' %')
                 txt5.set_text('%2d' % x_semaphores[4] + ' %')              
                 txt6.set_text('%4.2f' % measure_adq_ratio)
+                             
                 
-                if warnings_flag[0]:
-                    print_error(ax2,x_error,y_error,warnings,default_fontsize-1)
-                    fig.canvas.draw_idle() 
-                    warnings_flag[0] = False
-    
-                if interrupt_flag[0]:   
-                    print_error(ax2,x_error,y_error,acquiring_error,default_fontsize-1)
-                    fig.canvas.draw_idle()   
-                
+                if evento_warning.is_set():                
+                    print_error(warnings)
+                    warnings = []
+                    evento_warning.clear() 
+                    
                 fig.canvas.draw_idle()
                    
             i = i+1
             i = i%buffer_chunks 
 
-        
-        print_error(ax2,x_error,y_error,acquiring_error,default_fontsize-1)
+        print_error(acquiring_error)
         fig.canvas.draw_idle()
+ 
 
-         
-
-    def exit_callback(event):
-        acquiring_error.append('Medición interrumpida por el usuario')
-        interrupt_flag[0] = True        
-        print_error(ax2,x_error,y_error,acquiring_error,default_fontsize-1)
-        fig.canvas.draw_idle()  
-        
+    ########### CALLBACK DE BOTONES ##############
     def update_pid(val):
         global lsetpoint, lkp, lki, lkd, listeps
         lsetpoint = [ssetpoint.val]
         lkp = [skp.val]
         lki = [ski.val]
-        lkd = [skd.val]       
-        ind_is = np.argmin(np.abs(possible_isteps - sisteps.val))       
-        listeps = [possible_isteps[ind_is]]
-        while sisteps.val != possible_isteps[ind_is]:
-            sisteps.set_val(listeps[0])
+        lkd = [skd.val]  
+        listeps = [sisteps.val]      
+#        ind_is = np.argmin(np.abs(possible_isteps - sisteps.val))       
+#        listeps = [possible_isteps[ind_is]]
+#        while sisteps.val != possible_isteps[ind_is]:
+#            sisteps.set_val(listeps[0])
         
     def pid_onoff(event):
         global pid_onoff_button
@@ -1514,25 +1536,22 @@ def pid_daqmx(parametros):
         else:
             pid_onoff_button[0] = True  
             bonoff.label.set_text('PID ON ')
-            bonoff.label.set_color([0.,0.99,0.])
+            bonoff.label.set_color([0.,0.99,0.])    
+    ########### FIN CALLBACK DE BOTONES ##############
 
-        
-        
-    def print_error(ax,x,y,s,fontsize):       
-        s_tot = ''
-        for i in range(len(s)):
-            s_tot = s_tot + s[i] + '\n'          
-        ax.text(x,y,s_tot,fontsize=fontsize,va='center',transform = ax.transAxes,color='red') 
-    
     # Inicio los threads    
-    #print (u'\n Inicio de medición \n Presione Ctrl + c para interrumpir.')
     t1 = threading.Thread(target=writer_thread, args=[])
     t2 = threading.Thread(target=reader_thread, args=[])
     t3 = threading.Thread(target=callback_thread, args=[])
     t4 = threading.Thread(target=data_writer1_thread, args=[save_raw_data])
     t5 = threading.Thread(target=data_writer2_thread, args=[save_processed_data])
     t6 = threading.Thread(target=plot_thread, args=[])
-    
+
+    # Imprimo warnings           
+    if evento_warning.is_set():
+        print_error(warnings)
+        evento_warning.clear()
+        warnings = []
     
     if len(initialize_error) == 0:
         t1.start()
@@ -1543,8 +1562,9 @@ def pid_daqmx(parametros):
         t6.start()
     else:
         initialize_error = [u'Error de inicialización'] + initialize_error
-        print_error(ax2,x_error,y_error,initialize_error,default_fontsize-1)
+        print_error(initialize_error)
         
+
 
 
 def save_to_np_file(filename,arr):
