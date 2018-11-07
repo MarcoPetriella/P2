@@ -1439,11 +1439,8 @@ def pid_daqmx(parametros):
             ## Inicio Callback      
             output_buffer_mean_data[i,:] = np.mean(input_buffer[i,:,:],axis=0)
             output_buffer_error_data[i] = output_buffer_mean_data[i,0] - lsetpoint[0]              
-            output_buffer_pid_constants[i,0] = lsetpoint[0] 
-            output_buffer_pid_constants[i,1] = lkp[0] 
-            output_buffer_pid_constants[i,2] = lki[0] 
-            output_buffer_pid_constants[i,3] = lkd[0] 
-            output_buffer_pid_constants[i,4] = listeps[0]           
+            output_buffer_pid_constants[i,:] = np.array([lsetpoint[0],lkp[0],lki[0],lkd[0],listeps[0]])
+         
             # funcion de callback
             output_buffer_duty_cycle_i, output_buffer_error_data_i, termino_p, termino_i, termino_d, setpoint, kp, ki, kd, isteps  = callback_pid(i, input_buffer, output_buffer_duty_cycle, output_buffer_pid_terminos, output_buffer_mean_data, output_buffer_error_data, output_buffer_pid_constants, buffer_chunks, callback_pid_variables)             
             
