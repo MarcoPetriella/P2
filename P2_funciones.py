@@ -801,14 +801,15 @@ def callback_pid(i, input_buffer, output_buffer_duty_cycle, output_buffer_pid_te
         #   termino_i: termino integral
         #   termino_d: termino derivativo
         # output_buffer_mean_data: np.array [buffer_chunks,ai_nbr_channels]. La i-posicion es la actual. La columna 0 se utiliza para el PID.
-        # output_buffer_error_data: np.array [buffer_chunks]. La i-posicion es la actual: output_buffer_mean_data[i,0] - lsetpoint[0].
+        # output_buffer_error_data: np.array [buffer_chunks]. La i-posicion es la actual: output_buffer_mean_data[i,0] - lsetpoint[0]. Importante: se toma con el valor del setpoint del slider!
         # buffer_chunks: Cantidad de chunks del buffer
-        # output_buffer_pid_constants: np.array [buffer_chunks, 5] - > [buffer_chunks, setpoint kp ki kd isteps]
+        # output_buffer_pid_constants: np.array [buffer_chunks, 5] - > [buffer_chunks, setpoint kp ki kd isteps]. La i-posicion es la actual. Importante: se toma con el valor del setpoint del slider!
         #   setpoint: Valor de tensión del setpoint
         #   kp: constante multiplicativa del PID
         #   ki: constante integral del PID
         #   kd: constante derivativa del PID
         #   isteps: cantidad de pasos para atrás utilizados para el termino integral
+        #
         #
         # Variables de entrada del usuario:
         # --------------------------------
@@ -817,12 +818,19 @@ def callback_pid(i, input_buffer, output_buffer_duty_cycle, output_buffer_pid_te
         #   variable0 = callback_pid_variables[0]
         #   variable1 = callback_pid_variables[1]
         #
-        # Salidas:
+        #
+        # Salidas (calculadas en el callback):
         # -------
         # output_buffer_duty_cycle_i: duty cycle calculado en el callback
+        # output_buffer_error_data_i: error calculado en el callback
         # termino_p: termino multiplicativo que acompaña a kp
         # termino_i: termino integral que acompaña a ki
         # termino_d: termino derivatico que acompaña a kd
+        # setpoint: Valor de tensión del setpoint
+        # kp: constante multiplicativa del PID
+        # ki: constante integral del PID
+        # kd: constante derivativa del PID
+        # isteps: cantidad de pasos para atrás utilizados para el termino integral        
         #####################################
         """
         
@@ -830,33 +838,41 @@ def callback_pid(i, input_buffer, output_buffer_duty_cycle, output_buffer_pid_te
         max_duty_cycle = 0.999
         min_duty_cycle = 0.001  
         
+        # Cargo valores actuales
         setpoint = output_buffer_pid_constants[i,0]
         kp = output_buffer_pid_constants[i,1]
         ki = output_buffer_pid_constants[i,2]
         kd = output_buffer_pid_constants[i,3]
         isteps = int(output_buffer_pid_constants[i,4])
-    
+        output_buffer_error_data_i = output_buffer_error_data[i]
+        mean_data_i = output_buffer_mean_data[i,0]
+            
         # Paso anterior de buffer circular
         j = (i-1)%buffer_chunks
+        
+#        ## Ejemplo de cambio de parametros PID on the fly
+#        setpoint = output_buffer_pid_constants[j,0] - 0.002
+#        kd = output_buffer_pid_constants[j,3] + 0.002
+#        output_buffer_error_data_i = mean_data_i - setpoint
                 
         # n-esimo paso anterior de buffer circular
         k = (i-isteps)%buffer_chunks    
         
         # Algoritmo PID
-        termino_p = output_buffer_error_data[i]
-        termino_d = output_buffer_error_data[i]-output_buffer_error_data[j]
+        termino_p = output_buffer_error_data_i
+        termino_d = output_buffer_error_data_i - output_buffer_error_data[j]
         
         # termino integral
         termino_i = output_buffer_pid_terminos[j,1]
         isteps_ant = output_buffer_pid_constants[j,4]
         if isteps != isteps_ant:
             if k >= i:
-                termino_i = np.sum(output_buffer_error_data[k:buffer_chunks]) + np.sum(output_buffer_error_data[0:i])
+                termino_i = np.sum(output_buffer_error_data[k:buffer_chunks]) + np.sum(output_buffer_error_data[0:j] + output_buffer_error_data_i)
             else:
-                termino_i = np.sum(output_buffer_error_data[k:i])
+                termino_i = np.sum(output_buffer_error_data[k:j] + output_buffer_error_data_i)
             termino_i = termino_i/isteps
         else:
-            termino_i += output_buffer_error_data[i]/isteps - output_buffer_error_data[k]/isteps
+            termino_i += output_buffer_error_data_i/isteps - output_buffer_error_data[k]/isteps
         
         output_buffer_duty_cycle_i = output_buffer_duty_cycle[j] + kp*termino_p + ki*termino_i + kd*termino_d
         #time.sleep(0.015)
@@ -864,14 +880,8 @@ def callback_pid(i, input_buffer, output_buffer_duty_cycle, output_buffer_pid_te
         # Salida de la función
         output_buffer_duty_cycle_i = min(output_buffer_duty_cycle_i,max_duty_cycle)
         output_buffer_duty_cycle_i = max(output_buffer_duty_cycle_i,min_duty_cycle)
-                
-#        setpoint_i = setpoint + 0.01
-#        kp_i = kp + 0.01
-#        ki_i = ki + 0.03
-#        kd_i = kd + 0.02
-#        isteps_i = isteps + 1
         
-        return output_buffer_duty_cycle_i, termino_p, termino_i, termino_d
+        return output_buffer_duty_cycle_i, output_buffer_error_data_i, termino_p, termino_i, termino_d, setpoint, kp, ki, kd, isteps 
 
 
 
@@ -959,17 +969,17 @@ def pid_daqmx(parametros):
     evento_salida = threading.Event()
     
     ##### Callbacks de error #######
-    def warning_callback(warning_string):        
+    def warning_callback(warning_string): 
         evento_warning.set()
         warnings.append(warning_string)  
         
     def exit_callback(event):  
-        evento_salida.set()
         acquiring_error.append('Medición interrumpida por el usuario')
-
-    def exit_callback1(error_string):        
         evento_salida.set()
-        acquiring_error.append(error_string)          
+
+    def exit_callback1(error_string):   
+        acquiring_error.append(error_string) 
+        evento_salida.set()
                 
     # Lectura de parametros
     buffer_chunks = parametros['buffer_chunks']   
@@ -1188,6 +1198,14 @@ def pid_daqmx(parametros):
     ax2.text(xi,yi - 6*dyi, str(save_raw_data) + ' / ' + str(save_processed_data),fontsize=default_fontsize,va='center',ha='right',transform = ax2.transAxes)
     ax2.text(xi,yi - 7*dyi, '%4d' % sub_chunk_plot + ' / ' +'%6.2f' % (ai_samplerate/ai_samples/sub_chunk_plot) + ' Hz',fontsize=default_fontsize,va='center',ha='right',transform = ax2.transAxes)
 
+    xi = 2.35
+    ax2.text(xi,yi,'PID parameters',fontsize=default_fontsize,va='center',transform = ax2.transAxes)
+    pid_para0_txt = ax2.text(xi,yi - 1*dyi,'%6.2f' % (setpoint) + ' V',fontsize=default_fontsize,va='center',ha='left',transform = ax2.transAxes)
+    pid_para1_txt = ax2.text(xi,yi - 2*dyi,'%6.2f' % (kp),fontsize=default_fontsize,va='center',ha='left',transform = ax2.transAxes)
+    pid_para2_txt = ax2.text(xi,yi - 3*dyi,'%6.2f' % (ki),fontsize=default_fontsize,va='center',ha='left',transform = ax2.transAxes)
+    pid_para3_txt = ax2.text(xi,yi - 4*dyi,'%6.2f' % (kd),fontsize=default_fontsize,va='center',ha='left',transform = ax2.transAxes)
+    pid_para4_txt = ax2.text(xi+0.03,yi - 5*dyi,'%2d' % (isteps),fontsize=default_fontsize,va='center',ha='left',transform = ax2.transAxes)
+
     xi = 1.63
     ax2.text(xi,yi,'PID parameters',fontsize=default_fontsize,va='center',transform = ax2.transAxes)
     
@@ -1198,7 +1216,7 @@ def pid_daqmx(parametros):
     
     # Mensje de error
     x_error = 1.64
-    y_error = 0.08
+    y_error = 0.01
 
     texto_error = ax2.text(x_error,y_error,'',fontsize=default_fontsize-1,va='center',transform = ax2.transAxes,color='red') 
     
@@ -1209,6 +1227,8 @@ def pid_daqmx(parametros):
         texto_error.set_text(s_tot)       
 
     ############### BOTONES Y SLIDERS #########################
+    
+    global ssetpoint, skp, ski, skd,sisteps, lsetpoint, lkp, lki, lkd, listeps, bonoff, bnext, pid_onoff_button
     ########### CALLBACK DE BOTONES ##############
     def update_pid(val):
         global lsetpoint, lkp, lki, lkd, listeps
@@ -1234,9 +1254,6 @@ def pid_daqmx(parametros):
             bonoff.label.set_color([0.,0.99,0.])
             
     ########### FIN CALLBACK DE BOTONES ############## 
-    
-    global ssetpoint, skp, ski, skd,sisteps, lsetpoint, lkp, lki, lkd, listeps, bonoff, bnext, pid_onoff_button
-    
     # Inicializo variables de interfaz: setpoint, kp, ki, kd, isteps, pid_on_off
     lsetpoint = [setpoint]
     lkp = [kp]
@@ -1289,7 +1306,7 @@ def pid_daqmx(parametros):
     skd.valtext.set_size(default_fontsize)        
 
     # Slider integral steps
-    axisteps = plt.axes([xi_s + 0.17, yi_s - 2*dyi_s, 0.10, 0.02], facecolor=axcolor)
+    axisteps = plt.axes([xi_s, yi_s - 4*dyi_s, 0.10, 0.02], facecolor=axcolor)
     sisteps = Slider(axisteps, 'steps',0, buffer_chunks, valinit=isteps)
     sisteps.valfmt = '%2d'
     sisteps.on_changed(update_pid) 
@@ -1347,6 +1364,17 @@ def pid_daqmx(parametros):
                 i = i+1
                 i = i%buffer_chunks     
 
+        
+                       
+#        i = 0
+#        while not evento_salida.is_set():
+#            
+#            semaphore2.acquire()   
+#            #time.sleep(0.02)
+#            #digi_s.write_one_sample_pulse_frequency(frequency = initial_do_frequency, duty_cycle = output_buffer_duty_cycle[i])
+#            
+#            i = i+1
+#            i = i%buffer_chunks           
                
     # Defino el thread que adquiere la señal   
     def reader_thread():
@@ -1370,6 +1398,27 @@ def pid_daqmx(parametros):
                 
                 i = i+1
                 i = i%buffer_chunks                  
+
+#        i = 0
+#        while not evento_salida.is_set():
+#    
+#            medicion = np.zeros([ai_nbr_channels,ai_samples])
+#            #medicion[0,:] = np.arange(0,ai_samples)
+#            tt = i*ai_samples/ai_samplerate + np.arange(ai_samples)/ai_samples/ai_samplerate
+#            medicion[0,:] = 2.1 + 1.0*np.sin(2*np.pi*0.2*tt) + np.random.rand(ai_samples)
+#            medicion[1,:] = 1 + np.random.rand(ai_samples)
+#            medicion = np.reshape(medicion,ai_nbr_channels*ai_samples,order='F')
+#            
+#            for j in range(ai_nbr_channels):
+#                input_buffer[i,:,j] = medicion[j::ai_nbr_channels]  
+#            
+#            semaphore1.release() 
+#            semaphore3.release()
+#            
+#            time.sleep(0.009)
+#            
+#            i = i+1
+#            i = i%buffer_chunks  
 
        
     # Thread del callback        
@@ -1401,47 +1450,16 @@ def pid_daqmx(parametros):
             output_buffer_pid_constants[i,3] = lkd[0] 
             output_buffer_pid_constants[i,4] = listeps[0]           
             # funcion de callback
-            output_buffer_duty_cycle_i, termino_p, termino_i, termino_d = callback_pid(i, input_buffer, output_buffer_duty_cycle, output_buffer_pid_terminos, output_buffer_mean_data, output_buffer_error_data, output_buffer_pid_constants, buffer_chunks, callback_pid_variables)             
-#            output_buffer_duty_cycle_i, termino_p, termino_i, termino_d, setpoint_i, kp_i, ki_i, kd_i, isteps_i = callback_pid(i, input_buffer, output_buffer_duty_cycle, output_buffer_pid_terminos, output_buffer_mean_data, output_buffer_error_data, output_buffer_pid_constants, buffer_chunks, callback_pid_variables)             
+            output_buffer_duty_cycle_i, output_buffer_error_data_i, termino_p, termino_i, termino_d, setpoint, kp, ki, kd, isteps  = callback_pid(i, input_buffer, output_buffer_duty_cycle, output_buffer_pid_terminos, output_buffer_mean_data, output_buffer_error_data, output_buffer_pid_constants, buffer_chunks, callback_pid_variables)             
             
-            
+            # Actualizo los buffers luego del callback
             if pid_onoff_button[0] is False:
                 output_buffer_duty_cycle_i = initial_do_duty_cycle
 
             output_buffer_duty_cycle[i] = output_buffer_duty_cycle_i       
-            output_buffer_pid_terminos[i,:] = np.array([termino_p, termino_i, termino_d])
-            
-#            output_buffer_pid_constants[i,:] = np.array([setpoint_i,kp_i,ki_i,kd_i,isteps_i])            
-#                      
-#            if setpoint_i != output_buffer_pid_constants[j,0]:
-#                ssetpoint.set_val(setpoint_i)
-#                output_buffer_pid_constants[i,0] = setpoint_i 
-#            else:
-#                output_buffer_pid_constants[i,0] = output_buffer_pid_constants[j,0] 
-#                
-#            if kp_i != output_buffer_pid_constants[j,1]:
-#                skp.set_val(kp_i)          
-#                output_buffer_pid_constants[i,1] = kp_i 
-#            else:
-#                output_buffer_pid_constants[i,1] = output_buffer_pid_constants[j,1] 
-#            
-#            if ki_i != output_buffer_pid_constants[j,2]:
-#                ski.set_val(ki_i)               
-#                output_buffer_pid_constants[i,2] = ki_i
-#            else:
-#                output_buffer_pid_constants[i,2] = output_buffer_pid_constants[j,2] 
-#                
-#            if kd_i != output_buffer_pid_constants[j,3]:
-#                skd.set_val(kd_i)  
-#                output_buffer_pid_constants[i,3] = kd_i
-#            else:
-#                output_buffer_pid_constants[i,3] = output_buffer_pid_constants[j,3] 
-#                
-#            if isteps_i != output_buffer_pid_constants[j,4]:
-#                sisteps.set_val(isteps_i)    
-#                output_buffer_pid_constants[i,4] = isteps_i
-#            else:
-#                output_buffer_pid_constants[i,4] = output_buffer_pid_constants[j,4]               
+            output_buffer_pid_terminos[i,:] = np.array([termino_p, termino_i, termino_d])            
+            output_buffer_pid_constants[i,:] = np.array([setpoint,kp,ki,kd,isteps])    
+            output_buffer_error_data[i] = output_buffer_error_data_i            
             ## Fin callback
             
             semaphore2.release()
@@ -1599,13 +1617,13 @@ def pid_daqmx(parametros):
                     line1[k].set_ydata(data_plot1[:,k])                    
                 line2.set_ydata(data_plot2) 
     
-                setpoint_line.set_ydata(lsetpoint[0])
+                setpoint_line.set_ydata(output_buffer_pid_constants[i,0])
                 
                 data_plot3[0:-sub_chunk_plot,:] = data_plot3[sub_chunk_plot:,:]
                 data_plot3[-sub_chunk_plot:,:] = output_buffer_pid_terminos[j:jj,:]
                 for k in range(data_plot3.shape[1]): 
                     line3[k].set_ydata(data_plot3[:,k])             
-                 
+ 
                 # Textos
                 text_now.set_text(now)
                 
@@ -1622,7 +1640,13 @@ def pid_daqmx(parametros):
                 txt4.set_text('%2d' % x_semaphores[3] + ' %')
                 txt5.set_text('%2d' % x_semaphores[4] + ' %')              
                 txt6.set_text('%4.2f' % measure_adq_ratio)
-                             
+#                
+                pid_para0_txt.set_text('%6.2f' % output_buffer_pid_constants[i,0] + ' V')
+                pid_para1_txt.set_text('%6.2f' %output_buffer_pid_constants[i,1])
+                pid_para2_txt.set_text('%6.2f' %output_buffer_pid_constants[i,2])
+                pid_para3_txt.set_text('%6.2f' %output_buffer_pid_constants[i,3])
+                pid_para4_txt.set_text('%2d' %output_buffer_pid_constants[i,4])
+                                     
                 
                 if evento_warning.is_set():                
                     print_error(warnings)
@@ -1633,7 +1657,7 @@ def pid_daqmx(parametros):
                    
             i = i+1
             i = i%buffer_chunks 
-
+            
         print_error(acquiring_error)
         fig.canvas.draw_idle()
         

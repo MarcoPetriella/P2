@@ -24,8 +24,6 @@ from P2_funciones import pid_daqmx
 from P2_funciones import callback_pid
 from P2_funciones import save_to_np_file
 from P2_funciones import load_from_np_file
-import nidaqmx.constants as constants
-import nidaqmx.stream_writers
 import time
 import matplotlib.animation as animation
 
@@ -48,8 +46,8 @@ initial_do_duty_cycle = 0.5
 initial_do_frequency = 4000
 setpoint = 4.6
 kp = 0.1
-ki = 0.5
-kd = 0.3
+ki = 0
+kd = 0
 isteps = 20
 path_data_save = os.path.join(carpeta_salida,'experimento')
 callback_pid_variables = {}
@@ -77,6 +75,6 @@ parametros['callback_pid_variables'] = callback_pid_variables
 parametros['sub_chunk_save'] = 25
 parametros['sub_chunk_plot'] = 25
 parametros['nbr_buffers_plot'] = 5
-parametros['plot_rate_hz'] = 10
+parametros['plot_rate_hz'] = 13
 
 pid_daqmx(parametros)
