@@ -1357,9 +1357,7 @@ def pid_daqmx(parametros):
                     except:
                         warning_string = 'Error: No se guarda raw data'
                         warning_callback(warning_string)
-
-                                             
-                                       
+               
                 i = i+1
                 i = i%buffer_chunks   
 
