@@ -471,10 +471,10 @@ def load_from_np_file(filename):
 array = load_from_np_file('PID2\experimento_pid_constants.bin')
 array = load_from_np_file('PID2\experimento_duty_cycle.bin')
 
-array = load_from_np_file('PID2\experimento_pid_terminos.bin')
+#array = load_from_np_file('PID2\experimento_pid_terminos.bin')
 
 
-plt.plot(array[:,2])
+plt.plot(array[:])
 plt.plot(array[210,:,0])
 
 #%%

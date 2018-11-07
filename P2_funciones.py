@@ -27,9 +27,9 @@ import os
 #from pyqtgraph.Qt import QtGui, QtCore
 #import pyqtgraph as pg
 
-#import nidaqmx
-#import nidaqmx.constants as constants
-#import nidaqmx.stream_writers
+import nidaqmx
+import nidaqmx.constants as constants
+import nidaqmx.stream_writers
     
 #params = {'legend.fontsize': 'medium',
 #     #     'figure.figsize': (15, 5),
@@ -887,7 +887,7 @@ def pid_daqmx(parametros):
         - callback_thread: realiza el procesamiento de la señal adquirida, obtiene el duty cycle de salida y la escribe en el output_buffer (buffer de tiop circular).
         - writer_thread: manda el duty cycle del PWM al instrumento, el cual está conectado al actuador
         - data_writer1_thread: escribe el dato crudo del buffer_input en un archivo de salida
-        - data_writer2_thread: escribe el dato procesado por el thread callback y alojado en el output buffer, y lo escribe en un archivo de salida
+        - data_writer2_thread: escribe el dato procesado por el thread callback y alojado en el output buffer en un archivo de salida
         - plot_thread: realiza el muestreo de los datos procesados en el thread callback.
         
     Para la comunicación entre los threads se utilizan los siguientes semaforos:
@@ -902,10 +902,12 @@ def pid_daqmx(parametros):
     
     La entrada de los parámetros de adquisición se realiza con un diccionario con las siguientes variables:
         - buffer_chunks : int, cantidad de chunks de los buffers de entrada (input_buffer) y salida (output_buffer).
-        - ai_nbr_channels : int, cantidad de canales de entrada analógicos. El control PID se realiza con el primer canal especificado.
         - ai_samples : int, cantidad de samples por chunk.
-        - ai_channels : lista de int de dos elementos, canales de medicion [canal_i, canal_f].
+        - ai_channels : lista de int de dos elementos, canales de medicion [canal_i, canal_f]. El control PID se realiza con el primer canal especificado. En caso de un canal, la lista es de un elemento [canal].
         - ai_samplerate : int, frecuencia de sampleo de los canales analógicos. Tener en cuenta las limitaciones del instrumento cuando se trabaja con varios canales.
+        - ai_device : string, nombre del dispositivo analogico ej. 'Dev1/ai'
+        - do_device : string, nombre del dispositivo digital ej. 'Dev1/ctr'
+        - do_channel : lista de int de un elemento, [canal] por ahora solo esta habilitado un canal de salida.
         - initial_do_duty_cycle : int, duty cycle inicial del PWM
         - initial_do_frequency : int, frecuencia del PWM . La frecuencia no varía a lo largo de la medición.
         - setpoint : float, setpoint en [V].
@@ -929,12 +931,13 @@ def pid_daqmx(parametros):
         - callback_pid_variables : lista, lista donde se colocan las variables (definidas por el usuario) que pudiera utilizar el callback.
         - sub_chunk_save : int, parámetro opcional. Especifica la cantidad de chunks que se guardan por vez.
         - sub_chunk_plot : int, parámetro opcional. Especifica la cantidad de chunks que se muestran por vez.
-        - plot_rate_hz : int, parametro opcional, pisa a sub_chunk_plot. Frecuencia de muestreo en Hz. Se aconseja frecuencias menores a 15 Hz. Hay que ver si con animation mejora.
+        - plot_rate_hz : int, parámetro opcional, pisa a sub_chunk_plot. Frecuencia de muestreo en Hz. Se aconseja frecuencias menores a 15 Hz. Hay que ver si con animation de matplotlib mejora.
         
         Al comenzar la adquisicón se abre la interfaz que permite visualizar la medición de los canales analógicos y el valor de duty cycle en el grafico1. Y los términos
         multiplicativos, integrales, y derivativos del PID en el grafico2. Tambíen se permite el cambio de las constantes kp, ki, kd y la cantidad de pasos utilizados en el término integral.
         
-    
+        Autores: Leslie Cusato, Marco Petriella
+        Automatización y control - 2do cuatrimestre 2018
     """
 
     
@@ -964,10 +967,12 @@ def pid_daqmx(parametros):
                 
     # Lectura de parametros
     buffer_chunks = parametros['buffer_chunks']   
-    ai_nbr_channels = parametros['ai_nbr_channels']
     ai_samples = parametros['ai_samples']
-    ai_channels = parametros['ai_channels']
     ai_samplerate = parametros['ai_samplerate']
+    ai_device = parametros['ai_device']
+    ai_channels = parametros['ai_channels']
+    do_device = parametros['do_device']
+    do_channel = parametros['do_channel']
     initial_do_duty_cycle = parametros['initial_do_duty_cycle']
     initial_do_frequency = parametros['initial_do_frequency']        
     setpoint = parametros['setpoint']
@@ -1055,15 +1060,10 @@ def pid_daqmx(parametros):
         warning_string = 'La cantidad de ciclos del PWM no es entera!'
         warning_callback(warning_string)
 
-#    # pasos de la integral del pid
-#    possible_isteps = np.array([],dtype=int)
-#    i = 1
-#    while i < buffer_chunks+1:
-#        if buffer_chunks/i == int(buffer_chunks/i):
-#            possible_isteps = np.append(possible_isteps,int(buffer_chunks/i))
-#        i = i+1
-#    ind_is = np.argmin(np.abs(possible_isteps-isteps))
-#    isteps = possible_isteps[ind_is]
+    # pasos de la integral del pid
+    paso_integral = 10
+    possible_isteps = np.arange(0,buffer_chunks+paso_integral,paso_integral,dtype=int)
+    possible_isteps[0] = 1
 
     # Largo del vector a graficar
     if 'nbr_buffers_plot' in parametros:
@@ -1072,13 +1072,23 @@ def pid_daqmx(parametros):
         nbr_buffers_plot = 10
         
     # ai string
-    ai_channels_str = str(ai_channels[0])
+    ai_channels_str = ''
+    ai_nbr_channels = 0
     if len(ai_channels) == 2:
-        ai_channels_str = ai_channels_str + ':' + str(ai_channels[1])
-    ai_channels_str = 'Dev1/ai' + ai_channels_str
-    
+        ai_channels_str = str(ai_channels[0]) + ':' + str(ai_channels[1])
+        ai_nbr_channels = ai_channels[1] - ai_channels[0] + 1
+    elif len(ai_channels) == 1:
+        ai_channels_str = str(ai_channels[0])
+        ai_nbr_channels = 1
+    else:
+        initialize_error.append('El formato de los canales no está bien especificado')  
+        
+    ai_channels_str = ai_device + ai_channels_str
+
     # do string
-    do_channels_str = 'Dev1/ctr0'        
+    do_channels_str = do_device + str(do_channel[0])    
+    if len(do_channel) > 1:
+        initialize_error.append('Por ahora solo está habilitado un solo canal digital')   
 
     ##### FIN DE ACONDICIONAMIENTO DE PARAMETROS ###########
     #################################################
@@ -1218,107 +1228,58 @@ def pid_daqmx(parametros):
     listeps = [isteps]
     pid_onoff_button = [True]
     ##############################################################################
-       
+    
+    
+    
+    ############### DEFINICION DE LOS THREADS #################
+    ###########################################################
+    
     # Defino el thread que envia la señal          
     def writer_thread():  
         
-#        with nidaqmx.Task() as task_do:
-#            
-#            task_do.co_channels.add_co_pulse_chan_freq(counter=do_channels_str,duty_cycle=initial_do_duty_cycle,freq=initial_do_frequency,units=nidaqmx.constants.FrequencyUnits.HZ)
-#            task_do.timing.cfg_implicit_timing(sample_mode=constants.AcquisitionType.CONTINUOUS)    
-#            digi_s = nidaqmx.stream_writers.CounterWriter(task_do.out_stream)
-#            task_do.start()
-#                       
-#            i = 0
-#            while not interrupt_flag[0]:
-#                
-#                semaphore2.acquire()   
-#    
-#                digi_s.write_one_sample_pulse_frequency(frequency = initial_do_frequency, duty_cycle = output_buffer_duty_cycle[i])
-#                
-#                i = i+1
-#                i = i%buffer_chunks     
-
-
-                       
-        i = 0
-        while not evento_salida.is_set():
-            time.sleep(0.001)
-            semaphore2.acquire()   
-
-            #digi_s.write_one_sample_pulse_frequency(frequency = initial_do_frequency, duty_cycle = output_buffer_duty_cycle[i])
+        with nidaqmx.Task() as task_do:
             
-            i = i+1
-            i = i%buffer_chunks     
+            task_do.co_channels.add_co_pulse_chan_freq(counter=do_channels_str,duty_cycle=initial_do_duty_cycle,freq=initial_do_frequency,units=nidaqmx.constants.FrequencyUnits.HZ)
+            task_do.timing.cfg_implicit_timing(sample_mode=constants.AcquisitionType.CONTINUOUS)    
+            digi_s = nidaqmx.stream_writers.CounterWriter(task_do.out_stream)
+            task_do.start()
+                       
+            i = 0
+            while not evento_salida.is_set():
+                
+                semaphore2.acquire()   
+    
+                digi_s.write_one_sample_pulse_frequency(frequency = initial_do_frequency, duty_cycle = output_buffer_duty_cycle[i])
+                
+                i = i+1
+                i = i%buffer_chunks     
+               
     
     
     # Defino el thread que adquiere la señal   
     def reader_thread():
                 
-#        with nidaqmx.Task() as task_ai:
-#            task_ai.ai_channels.add_ai_voltage_chan(ai_channels_str,max_val=5., min_val=-5.,terminal_config=constants.TerminalConfiguration.RSE)#, "Voltage")#,AIVoltageUnits.Volts)#,max_val=10., min_val=-10.)
-#            task_ai.timing.cfg_samp_clk_timing(ai_samplerate,samps_per_chan=ai_samples,sample_mode=constants.AcquisitionType.CONTINUOUS)
-#                
-#            i = 0
-#            while not interrupt_flag[0]:
-#        
-#                medicion = task_ai.read(number_of_samples_per_channel=ai_samples)
-#                medicion = np.asarray(medicion)
-#                medicion = np.reshape(medicion,ai_nbr_channels*ai_samples,order='F')
-#                
-#                for j in range(ai_nbr_channels):
-#                    input_buffer[i,:,j] = medicion[j::ai_nbr_channels]  
-#                
-#                semaphore1.release() 
-#                if not i%sub_chunk_save:
-#                   semaphore3.release()
-#                
-#                i = i+1
-#                i = i%buffer_chunks                  
-
-
-        previous = datetime.datetime.now()
-        delta_t = np.array([])
-        delta_t_avg = 10
-        
-        medicion = np.zeros([ai_nbr_channels,ai_samples])
-        
-        i = 0
-        while not evento_salida.is_set():
-
-            if i%sub_chunk_plot == 0: 
-            
-                now = datetime.datetime.now()
-                delta_ti = now - previous
-                previous = now
-                now = now.strftime("%Y-%m-%d %H:%M:%S")
+        with nidaqmx.Task() as task_ai:
+            task_ai.ai_channels.add_ai_voltage_chan(ai_channels_str,max_val=5., min_val=-5.,terminal_config=constants.TerminalConfiguration.RSE)#, "Voltage")#,AIVoltageUnits.Volts)#,max_val=10., min_val=-10.)
+            task_ai.timing.cfg_samp_clk_timing(ai_samplerate,samps_per_chan=ai_samples,sample_mode=constants.AcquisitionType.CONTINUOUS)
                 
-                delta_ti = delta_ti.total_seconds()
-                delta_t = np.append(delta_t,delta_ti)
-                if delta_t.shape[0] > delta_t_avg:
-                    delta_t = delta_t[-delta_t_avg:]    
+            i = 0
+            while not evento_salida.is_set():
+        
+                medicion = task_ai.read(number_of_samples_per_channel=ai_samples)
+                medicion = np.asarray(medicion)
+                medicion = np.reshape(medicion,ai_nbr_channels*ai_samples,order='F')
                 
-                print(delta_t.mean()/sub_chunk_plot)
+                for j in range(ai_nbr_channels):
+                    input_buffer[i,:,j] = medicion[j::ai_nbr_channels]  
+                
+                semaphore1.release() 
+                semaphore3.release()
+                
+                i = i+1
+                i = i%buffer_chunks                  
 
-            #medicion = task_ai.read(number_of_samples_per_channel=ai_samples)
-            #medicion = np.asarray(medicion)
-            medicion = np.zeros([ai_nbr_channels,ai_samples])
-            #medicion[0,:] = np.arange(0,ai_samples)
-            tt = i*ai_samples/ai_samplerate + np.arange(ai_samples)/ai_samples/ai_samplerate
-            medicion[0,:] = 2.1 + 1.0*np.sin(2*np.pi*0.2*tt) + np.random.rand(ai_samples)
-            medicion[1,:] = 1 + np.random.rand(ai_samples)
-            medicion = np.reshape(medicion,ai_nbr_channels*ai_samples,order='F')
-            
-            for j in range(ai_nbr_channels):
-                input_buffer[i,:,j] = medicion[j::ai_nbr_channels]  
-            
-            semaphore1.release() 
-            semaphore3.release()
-            
-            time.sleep(0.0090)
-            
-            i = i+1
-            i = i%buffer_chunks 
+
                 
     # Thread del callback        
     def callback_thread():
@@ -1356,11 +1317,8 @@ def pid_daqmx(parametros):
             output_buffer_duty_cycle_i, termino_p, termino_i, termino_d = callback_pid(i, input_buffer, output_buffer_duty_cycle, output_buffer_pid_terminos, output_buffer_mean_data, output_buffer_error_data, output_buffer_pid_constants, buffer_chunks, callback_pid_variables)             
             if pid_onoff_button[0] is False:
                 output_buffer_duty_cycle_i = initial_do_duty_cycle
-                
-            #print(pid_onoff_button[0])
             output_buffer_duty_cycle[i] = output_buffer_duty_cycle_i       
             output_buffer_pid_terminos[i,:] = np.array([termino_p, termino_i, termino_d])
-            time.sleep(0.005)
             ## Fin callback
             
             semaphore2.release()
@@ -1619,10 +1577,10 @@ def pid_daqmx(parametros):
         lki = [ski.val]
         lkd = [skd.val]  
         listeps = [sisteps.val]      
-#        ind_is = np.argmin(np.abs(possible_isteps - sisteps.val))       
-#        listeps = [possible_isteps[ind_is]]
-#        while sisteps.val != possible_isteps[ind_is]:
-#            sisteps.set_val(listeps[0])
+        ind_is = np.argmin(np.abs(possible_isteps - sisteps.val))       
+        listeps = [possible_isteps[ind_is]]
+        while sisteps.val != possible_isteps[ind_is]:
+            sisteps.set_val(listeps[0])
         
     def pid_onoff(event):
         global pid_onoff_button
