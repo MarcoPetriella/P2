@@ -30,7 +30,7 @@ import os
 import nidaqmx
 import nidaqmx.constants as constants
 import nidaqmx.stream_writers
-    
+#    
 #params = {'legend.fontsize': 'medium',
 #     #     'figure.figsize': (15, 5),
 #         'axes.labelsize': 'medium',
@@ -803,7 +803,7 @@ def callback_pid(i, input_buffer, output_buffer_duty_cycle, output_buffer_pid_te
         # output_buffer_mean_data: np.array [buffer_chunks,ai_nbr_channels]. La i-posicion es la actual. La columna 0 se utiliza para el PID.
         # output_buffer_error_data: np.array [buffer_chunks]. La i-posicion es la actual: output_buffer_mean_data[i,0] - lsetpoint[0].
         # buffer_chunks: Cantidad de chunks del buffer
-        # output_buffer_pid_constants [buffer_chunks, 5] - > [buffer_chunks, setpoint kp ki kd isteps]
+        # output_buffer_pid_constants: np.array [buffer_chunks, 5] - > [buffer_chunks, setpoint kp ki kd isteps]
         #   setpoint: Valor de tensión del setpoint
         #   kp: constante multiplicativa del PID
         #   ki: constante integral del PID
@@ -865,6 +865,12 @@ def callback_pid(i, input_buffer, output_buffer_duty_cycle, output_buffer_pid_te
         output_buffer_duty_cycle_i = min(output_buffer_duty_cycle_i,max_duty_cycle)
         output_buffer_duty_cycle_i = max(output_buffer_duty_cycle_i,min_duty_cycle)
                 
+#        setpoint_i = setpoint + 0.01
+#        kp_i = kp + 0.01
+#        ki_i = ki + 0.03
+#        kd_i = kd + 0.02
+#        isteps_i = isteps + 1
+        
         return output_buffer_duty_cycle_i, termino_p, termino_i, termino_d
 
 
@@ -952,18 +958,18 @@ def pid_daqmx(parametros):
     evento_warning = threading.Event()
     evento_salida = threading.Event()
     
-    ##### Callbacks de error ########
-    def exit_callback(event):      
+    ##### Callbacks de error #######
+    def warning_callback(warning_string):        
+        evento_warning.set()
+        warnings.append(warning_string)  
+        
+    def exit_callback(event):  
         evento_salida.set()
         acquiring_error.append('Medición interrumpida por el usuario')
 
     def exit_callback1(error_string):        
         evento_salida.set()
-        acquiring_error.append(error_string)
-
-    def warning_callback(warning_string):        
-        evento_warning.set()
-        warnings.append(warning_string)    
+        acquiring_error.append(error_string)          
                 
     # Lectura de parametros
     buffer_chunks = parametros['buffer_chunks']   
@@ -1188,7 +1194,8 @@ def pid_daqmx(parametros):
     xi_s = 0.69
     yi_s = 0.185
     dyi_s = 0.03
-
+    
+    
     # Mensje de error
     x_error = 1.64
     y_error = 0.08
@@ -1199,7 +1206,98 @@ def pid_daqmx(parametros):
         s_tot = ''
         for i in range(len(s)):
             s_tot = s_tot + s[i] + '\n' 
-        texto_error.set_text(s_tot)    
+        texto_error.set_text(s_tot)       
+
+    ############### BOTONES Y SLIDERS #########################
+    ########### CALLBACK DE BOTONES ##############
+    def update_pid(val):
+        global lsetpoint, lkp, lki, lkd, listeps
+        lsetpoint = [ssetpoint.val]
+        lkp = [skp.val]
+        lki = [ski.val]
+        lkd = [skd.val]  
+        listeps = [sisteps.val]      
+        ind_is = np.argmin(np.abs(possible_isteps - sisteps.val))       
+        listeps = [possible_isteps[ind_is]]
+        while sisteps.val != possible_isteps[ind_is]:
+            sisteps.set_val(listeps[0])
+        
+    def pid_onoff(event):
+        global pid_onoff_button
+        if pid_onoff_button[0] is True:
+            pid_onoff_button[0] = False
+            bonoff.label.set_text('PID OFF')
+            bonoff.label.set_color([0.99,0.0,0.])
+        else:
+            pid_onoff_button[0] = True  
+            bonoff.label.set_text('PID ON ')
+            bonoff.label.set_color([0.,0.99,0.])
+            
+    ########### FIN CALLBACK DE BOTONES ############## 
+    
+    global ssetpoint, skp, ski, skd,sisteps, lsetpoint, lkp, lki, lkd, listeps, bonoff, bnext, pid_onoff_button
+    
+    # Inicializo variables de interfaz: setpoint, kp, ki, kd, isteps, pid_on_off
+    lsetpoint = [setpoint]
+    lkp = [kp]
+    lki = [ki]
+    lkd = [kd]
+    listeps = [isteps]
+    pid_onoff_button = [True]
+    ##############################################################################    
+
+    ############### BOTONES ######################
+    # Boton de salida
+    axnext = plt.axes([0.88, 0.35, 0.1, 0.075])
+    bnext = Button(axnext, 'Stop')
+    bnext.on_clicked(exit_callback) 
+    
+    axonoff = plt.axes([0.88, 0.25, 0.1, 0.075])
+    bonoff = Button(axonoff, 'PID ON ')
+    bonoff.on_clicked(pid_onoff)  
+    bonoff.label.set_size(10)
+    bonoff.label.set_backgroundcolor([1,1,1,0.8])
+    bonoff.label.set_color([0.,0.99,0.])
+    
+    # Slider setpoit
+    axcolor = 'lightgoldenrodyellow'
+    axsetpoint = plt.axes([xi_s, yi_s, 0.10, 0.02], facecolor=axcolor)
+    ssetpoint = Slider(axsetpoint, 'Setpoint',0.001, 5.0, valinit=setpoint)
+    ssetpoint.on_changed(update_pid) 
+    ssetpoint.label.set_size(default_fontsize)
+    ssetpoint.valtext.set_size(default_fontsize)
+
+    # Slider kp
+    axkp = plt.axes([xi_s, yi_s - 1*dyi_s, 0.10, 0.02], facecolor=axcolor)
+    skp = Slider(axkp, 'kp',0.0, 2.0, valinit=kp)
+    skp.on_changed(update_pid) 
+    skp.label.set_size(default_fontsize)
+    skp.valtext.set_size(default_fontsize)
+
+    # Slider ki
+    axki = plt.axes([xi_s, yi_s - 2*dyi_s, 0.10, 0.02], facecolor=axcolor)
+    ski = Slider(axki, 'ki',0.0, 2.0, valinit=ki)
+    ski.on_changed(update_pid) 
+    ski.label.set_size(default_fontsize)
+    ski.valtext.set_size(default_fontsize)
+    
+    # Slider kd
+    axkd = plt.axes([xi_s, yi_s - 3*dyi_s, 0.10, 0.02], facecolor=axcolor)
+    skd = Slider(axkd, 'kd',0.0, 2.0, valinit=kd)
+    skd.on_changed(update_pid)   
+    skd.label.set_size(default_fontsize)
+    skd.valtext.set_size(default_fontsize)        
+
+    # Slider integral steps
+    axisteps = plt.axes([xi_s + 0.17, yi_s - 2*dyi_s, 0.10, 0.02], facecolor=axcolor)
+    sisteps = Slider(axisteps, 'steps',0, buffer_chunks, valinit=isteps)
+    sisteps.valfmt = '%2d'
+    sisteps.on_changed(update_pid) 
+    sisteps.label.set_size(default_fontsize)
+    sisteps.valtext.set_size(default_fontsize)
+      
+    ############### FIN BOTONES ######################     
+     
     
     ####### FIN PLOT ############
     #############################    
@@ -1210,7 +1308,12 @@ def pid_daqmx(parametros):
     output_buffer_mean_data = np.zeros([buffer_chunks,ai_nbr_channels])
     output_buffer_duty_cycle = np.ones(buffer_chunks)*initial_do_duty_cycle
     output_buffer_error_data = np.zeros(buffer_chunks)
-    output_buffer_pid_constants = np.zeros([buffer_chunks,5])    
+    output_buffer_pid_constants = np.ones([buffer_chunks,5]) 
+    output_buffer_pid_constants[:,0] = output_buffer_pid_constants[:,0]*setpoint
+    output_buffer_pid_constants[:,1] = output_buffer_pid_constants[:,1]*kp
+    output_buffer_pid_constants[:,2] = output_buffer_pid_constants[:,2]*ki
+    output_buffer_pid_constants[:,3] = output_buffer_pid_constants[:,3]*kd
+    output_buffer_pid_constants[:,4] = output_buffer_pid_constants[:,4]*isteps
     output_buffer_pid_terminos = np.zeros([buffer_chunks,3])    
        
     # Semaforos
@@ -1220,17 +1323,7 @@ def pid_daqmx(parametros):
     semaphore4 = threading.Semaphore(0) # Guardado de processed data
     semaphore5 = threading.Semaphore(0) # Plot
     
-    # Inicializo variables de interfaz: setpoint, kp, ki, kd, isteps, pid_on_off
-    lsetpoint = [setpoint]
-    lkp = [kp]
-    lki = [ki]
-    lkd = [kd]
-    listeps = [isteps]
-    pid_onoff_button = [True]
-    ##############################################################################
-    
-    
-    
+
     ############### DEFINICION DE LOS THREADS #################
     ###########################################################
     
@@ -1253,9 +1346,8 @@ def pid_daqmx(parametros):
                 
                 i = i+1
                 i = i%buffer_chunks     
+
                
-    
-    
     # Defino el thread que adquiere la señal   
     def reader_thread():
                 
@@ -1279,22 +1371,13 @@ def pid_daqmx(parametros):
                 i = i+1
                 i = i%buffer_chunks                  
 
-
-                
+       
     # Thread del callback        
     def callback_thread():
-        
-        global lsetpoint, lkp, lki, lkd, listeps, pid_onoff_button
-        lsetpoint = [setpoint]
-        lkp = [kp]
-        lki = [ki]
-        lkd = [kd]
-        listeps = [isteps]
-        pid_onoff_button = [True]        
-        
-              
+                
         i = 0
         while not evento_salida.is_set(): 
+            
 
             if semaphore1._value > buffer_chunks:
                 error_string = 'Hay overrun en llenado del input_buffer!'
@@ -1304,21 +1387,61 @@ def pid_daqmx(parametros):
                 error_string = 'Hay overrun en el vaciado del output_buffer!'
                 exit_callback1(error_string)            
             
-            semaphore1.acquire()    
+            semaphore1.acquire() 
+            
+#            # Paso anterior del buffer circular
+#            j = (i-1)%buffer_chunks
     
             ## Inicio Callback      
             output_buffer_mean_data[i,:] = np.mean(input_buffer[i,:,:],axis=0)
-            output_buffer_error_data[i] = output_buffer_mean_data[i,0] - lsetpoint[0]  
+            output_buffer_error_data[i] = output_buffer_mean_data[i,0] - lsetpoint[0]              
             output_buffer_pid_constants[i,0] = lsetpoint[0] 
             output_buffer_pid_constants[i,1] = lkp[0] 
             output_buffer_pid_constants[i,2] = lki[0] 
             output_buffer_pid_constants[i,3] = lkd[0] 
-            output_buffer_pid_constants[i,4] = listeps[0]
+            output_buffer_pid_constants[i,4] = listeps[0]           
+            # funcion de callback
             output_buffer_duty_cycle_i, termino_p, termino_i, termino_d = callback_pid(i, input_buffer, output_buffer_duty_cycle, output_buffer_pid_terminos, output_buffer_mean_data, output_buffer_error_data, output_buffer_pid_constants, buffer_chunks, callback_pid_variables)             
+#            output_buffer_duty_cycle_i, termino_p, termino_i, termino_d, setpoint_i, kp_i, ki_i, kd_i, isteps_i = callback_pid(i, input_buffer, output_buffer_duty_cycle, output_buffer_pid_terminos, output_buffer_mean_data, output_buffer_error_data, output_buffer_pid_constants, buffer_chunks, callback_pid_variables)             
+            
+            
             if pid_onoff_button[0] is False:
                 output_buffer_duty_cycle_i = initial_do_duty_cycle
+
             output_buffer_duty_cycle[i] = output_buffer_duty_cycle_i       
             output_buffer_pid_terminos[i,:] = np.array([termino_p, termino_i, termino_d])
+            
+#            output_buffer_pid_constants[i,:] = np.array([setpoint_i,kp_i,ki_i,kd_i,isteps_i])            
+#                      
+#            if setpoint_i != output_buffer_pid_constants[j,0]:
+#                ssetpoint.set_val(setpoint_i)
+#                output_buffer_pid_constants[i,0] = setpoint_i 
+#            else:
+#                output_buffer_pid_constants[i,0] = output_buffer_pid_constants[j,0] 
+#                
+#            if kp_i != output_buffer_pid_constants[j,1]:
+#                skp.set_val(kp_i)          
+#                output_buffer_pid_constants[i,1] = kp_i 
+#            else:
+#                output_buffer_pid_constants[i,1] = output_buffer_pid_constants[j,1] 
+#            
+#            if ki_i != output_buffer_pid_constants[j,2]:
+#                ski.set_val(ki_i)               
+#                output_buffer_pid_constants[i,2] = ki_i
+#            else:
+#                output_buffer_pid_constants[i,2] = output_buffer_pid_constants[j,2] 
+#                
+#            if kd_i != output_buffer_pid_constants[j,3]:
+#                skd.set_val(kd_i)  
+#                output_buffer_pid_constants[i,3] = kd_i
+#            else:
+#                output_buffer_pid_constants[i,3] = output_buffer_pid_constants[j,3] 
+#                
+#            if isteps_i != output_buffer_pid_constants[j,4]:
+#                sisteps.set_val(isteps_i)    
+#                output_buffer_pid_constants[i,4] = isteps_i
+#            else:
+#                output_buffer_pid_constants[i,4] = output_buffer_pid_constants[j,4]               
             ## Fin callback
             
             semaphore2.release()
@@ -1414,63 +1537,11 @@ def pid_daqmx(parametros):
     
     def plot_thread():
         global warnings
-        global ssetpoint, skp, ski, skd,sisteps, lsetpoint, lkp, lki, lkd, listeps, bonoff
+        global ssetpoint, skp, ski, skd,sisteps, lsetpoint, lkp, lki, lkd, listeps, bonoff, bnext
                     
         
         lsetpoint = [setpoint]
          
-        ############### BOTONES ######################
-        # Boton de salida
-        axnext = plt.axes([0.88, 0.35, 0.1, 0.075])
-        bnext = Button(axnext, 'Stop')
-        bnext.on_clicked(exit_callback) 
-        
-        axonoff = plt.axes([0.88, 0.25, 0.1, 0.075])
-        bonoff = Button(axonoff, 'PID ON ')
-        bonoff.on_clicked(pid_onoff)  
-        bonoff.label.set_size(10)
-        bonoff.label.set_backgroundcolor([1,1,1,0.8])
-        bonoff.label.set_color([0.,0.99,0.])
-        
-        # Slider setpoit
-        axcolor = 'lightgoldenrodyellow'
-        axsetpoint = plt.axes([xi_s, yi_s, 0.10, 0.02], facecolor=axcolor)
-        ssetpoint = Slider(axsetpoint, 'Setpoint',0.001, 5.0, valinit=setpoint)
-        ssetpoint.on_changed(update_pid) 
-        ssetpoint.label.set_size(default_fontsize)
-        ssetpoint.valtext.set_size(default_fontsize)
-    
-        # Slider kp
-        axkp = plt.axes([xi_s, yi_s - 1*dyi_s, 0.10, 0.02], facecolor=axcolor)
-        skp = Slider(axkp, 'kp',0.0, 2.0, valinit=kp)
-        skp.on_changed(update_pid) 
-        skp.label.set_size(default_fontsize)
-        skp.valtext.set_size(default_fontsize)
-    
-        # Slider ki
-        axki = plt.axes([xi_s, yi_s - 2*dyi_s, 0.10, 0.02], facecolor=axcolor)
-        ski = Slider(axki, 'ki',0.0, 2.0, valinit=ki)
-        ski.on_changed(update_pid) 
-        ski.label.set_size(default_fontsize)
-        ski.valtext.set_size(default_fontsize)
-    
-        # Slider integral steps
-        axisteps = plt.axes([xi_s + 0.17, yi_s - 2*dyi_s, 0.10, 0.02], facecolor=axcolor)
-        sisteps = Slider(axisteps, 'steps',0.0, buffer_chunks, valinit=isteps)
-        sisteps.valfmt = '%2d'
-        sisteps.on_changed(update_pid) 
-        sisteps.label.set_size(default_fontsize)
-        sisteps.valtext.set_size(default_fontsize)
-    
-        
-        # Slider kd
-        axkd = plt.axes([xi_s, yi_s - 3*dyi_s, 0.10, 0.02], facecolor=axcolor)
-        skd = Slider(axkd, 'kd',0.0, 2.0, valinit=kd)
-        skd.on_changed(update_pid)   
-        skd.label.set_size(default_fontsize)
-        skd.valtext.set_size(default_fontsize)          
-        ############### FIN BOTONES ######################        
-        
         # Contador de los semaforos
         x_semaphores = np.zeros(5)
         
@@ -1565,32 +1636,14 @@ def pid_daqmx(parametros):
 
         print_error(acquiring_error)
         fig.canvas.draw_idle()
+        
+#        time.sleep(0.5)
+#        print_error(['Cerrando interfaz...'])
+#        time.sleep(0.5)
+#        plt.close(fig)
  
 
-    ########### CALLBACK DE BOTONES ##############
-    def update_pid(val):
-        global lsetpoint, lkp, lki, lkd, listeps
-        lsetpoint = [ssetpoint.val]
-        lkp = [skp.val]
-        lki = [ski.val]
-        lkd = [skd.val]  
-        listeps = [sisteps.val]      
-        ind_is = np.argmin(np.abs(possible_isteps - sisteps.val))       
-        listeps = [possible_isteps[ind_is]]
-        while sisteps.val != possible_isteps[ind_is]:
-            sisteps.set_val(listeps[0])
-        
-    def pid_onoff(event):
-        global pid_onoff_button
-        if pid_onoff_button[0] is True:
-            pid_onoff_button[0] = False
-            bonoff.label.set_text('PID OFF')
-            bonoff.label.set_color([0.99,0.0,0.])
-        else:
-            pid_onoff_button[0] = True  
-            bonoff.label.set_text('PID ON ')
-            bonoff.label.set_color([0.,0.99,0.])    
-    ########### FIN CALLBACK DE BOTONES ##############
+
 
     # Inicio los threads    
     t1 = threading.Thread(target=writer_thread, args=[])
