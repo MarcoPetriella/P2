@@ -855,27 +855,22 @@ def callback_pid(i, input_buffer, output_buffer_duty_cycle, output_buffer_pid_te
 #        kd = output_buffer_pid_constants[j,3] + 0.002
 #        output_buffer_error_data_i = mean_data_i - setpoint
                 
-        # n-esimo paso anterior de buffer circular
+        # isteps paso anterior de buffer circular
         k = (i-isteps)%buffer_chunks    
         
         # Algoritmo PID
         termino_p = output_buffer_error_data_i
         termino_d = output_buffer_error_data_i - output_buffer_error_data[j]
         
-        # termino integral
-        termino_i = output_buffer_pid_terminos[j,1]
-        isteps_ant = output_buffer_pid_constants[j,4]
-        if isteps != isteps_ant:
-            if k >= i:
-                termino_i = np.sum(output_buffer_error_data[k:buffer_chunks]) + np.sum(output_buffer_error_data[0:j] + output_buffer_error_data_i)
-            else:
-                termino_i = np.sum(output_buffer_error_data[k:j] + output_buffer_error_data_i)
-            termino_i = termino_i/isteps
+        # Termino integral (hay que optimizar esto)
+        termino_i = 0
+        if k >= i:
+            termino_i = np.sum(output_buffer_error_data[k:buffer_chunks]) + np.sum(output_buffer_error_data[0:i])
         else:
-            termino_i += output_buffer_error_data_i/isteps - output_buffer_error_data[k]/isteps
+            termino_i = np.sum(output_buffer_error_data[k:i])
+        termino_i = termino_i/isteps
         
         output_buffer_duty_cycle_i = output_buffer_duty_cycle[j] + kp*termino_p + ki*termino_i + kd*termino_d
-        #time.sleep(0.015)
     
         # Salida de la función
         output_buffer_duty_cycle_i = min(output_buffer_duty_cycle_i,max_duty_cycle)
@@ -940,7 +935,7 @@ def pid_daqmx(parametros):
             path_data_save + '_raw_data.bin' : archivo binario para dato crudo. Es un array de tres dimensiones [:, ai_samples,ai_nbr_channels]
             path_data_save + '_duty_cycle.bin' : archivo binario con duty_cycle. Es un array de una dimensión.
             path_data_save + '_mean_data.bin' : archivo binario con valor medio de los canales. Es un array de dos dimensiones [:,ai_nbr_channels]
-            path_data_save + '_pid_constants.bin' : archivo binario con las constantes PID. Es un un array de dos dimensiones [:,kp ki kp isteps]
+            path_data_save + '_pid_constants.bin' : archivo binario con las constantes PID. Es un un array de dos dimensiones [:,setpoint kp ki kp isteps]
             path_data_save + '_pid_terminos.bin' : archivo binario con los términos PID. Es un array de dos dimensiones [:, termino_p termino_i termino_p]                 
         - show_plot : bool, actualiza el muestreo o no.
         - callback_pid : function, función con el callback. Ver P2_corre_pid.py con ejemplo.
@@ -1406,7 +1401,7 @@ def pid_daqmx(parametros):
 #            #medicion[0,:] = np.arange(0,ai_samples)
 #            tt = i*ai_samples/ai_samplerate + np.arange(ai_samples)/ai_samples/ai_samplerate
 #            medicion[0,:] = 2.1 + 1.0*np.sin(2*np.pi*0.2*tt) + np.random.rand(ai_samples)
-#            medicion[1,:] = 1 + np.random.rand(ai_samples)
+#            #medicion[1,:] = 1 + np.random.rand(ai_samples)
 #            medicion = np.reshape(medicion,ai_nbr_channels*ai_samples,order='F')
 #            
 #            for j in range(ai_nbr_channels):
@@ -1666,9 +1661,6 @@ def pid_daqmx(parametros):
 #        time.sleep(0.5)
 #        plt.close(fig)
  
-
-
-
     # Inicio los threads    
     t1 = threading.Thread(target=writer_thread, args=[])
     t2 = threading.Thread(target=reader_thread, args=[])

@@ -471,7 +471,7 @@ def load_from_np_file(filename):
 array = load_from_np_file('PID2\experimento_pid_constants.bin')
 #array = load_from_np_file('PID2\experimento_duty_cycle.bin')
 
-#array = load_from_np_file('PID2\experimento_pid_terminos.bin')
+array = load_from_np_file('PID2\experimento_pid_terminos.bin')
 
 
 plt.plot(array[:,:])
@@ -618,3 +618,36 @@ a = 1
 b = 2
 
 c = hola(a,b)
+
+#%%
+
+ai_nbr_channels= 2
+ai_samples = 50000
+ai_samplerate = 500
+i = 0
+
+medicion = np.zeros([ai_nbr_channels,ai_samples])
+#medicion[0,:] = np.arange(0,ai_samples)
+tt = i*ai_samples/ai_samplerate + np.arange(ai_samples)/ai_samples/ai_samplerate
+medicion[0,:] = 2.1 + 1.0*np.sin(2*np.pi*2000*tt)# + np.random.rand(ai_samples)
+
+plt.plot(medicion[0,:])
+
+conv = np.ones(10000)/10000
+
+b = np.convolve(medicion[0,:],conv,mode='valid')
+
+plt.plot(b)
+
+
+
+a = np.array([1,2,3])
+np.sum(a[0:-1])
+
+
+
+
+
+
+
+

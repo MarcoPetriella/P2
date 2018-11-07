@@ -37,7 +37,7 @@ if not os.path.exists(carpeta_salida):
     os.mkdir(carpeta_salida)
          
 # Variables 
-ai_channels = [1,2]
+ai_channels = [1]
 buffer_chunks = 500
 ai_samples = 500
 ai_samplerate = 50000
@@ -75,6 +75,6 @@ parametros['callback_pid_variables'] = callback_pid_variables
 parametros['sub_chunk_save'] = 25
 parametros['sub_chunk_plot'] = 25
 parametros['nbr_buffers_plot'] = 5
-parametros['plot_rate_hz'] = 13
+parametros['plot_rate_hz'] = 10
 
 pid_daqmx(parametros)
