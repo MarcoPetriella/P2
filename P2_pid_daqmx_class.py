@@ -57,7 +57,8 @@ class pid_daq(object):
         self.sample_period = self.ai_samples/self.ai_samplerate
         
         # Valores predeterminado
-        self.pid_onoff_button = [True]
+        self.pid_onoff_button = True
+        self.pid_costants_button = False
         self.plot_fontsize = 10
         self.default_fontsize = 6
 
@@ -231,8 +232,8 @@ class pid_daq(object):
         
         input_buffer = np.zeros([buffer_chunks,ai_samples,ai_nbr_channels])
         output_buffer_mean_data = np.zeros([buffer_chunks,ai_nbr_channels])
-        output_buffer_duty_cycle = np.ones(buffer_chunks)*initial_do_duty_cycle
-        output_buffer_error_data = np.zeros(buffer_chunks)
+        output_buffer_duty_cycle = np.ones([buffer_chunks,1])*initial_do_duty_cycle
+        output_buffer_error_data = np.zeros([buffer_chunks,1])
         output_buffer_pid_constants = np.ones([buffer_chunks,5]) 
         output_buffer_pid_constants[:,0] = output_buffer_pid_constants[:,0]*setpoint
         output_buffer_pid_constants[:,1] = output_buffer_pid_constants[:,1]*kp
@@ -283,7 +284,7 @@ class pid_daq(object):
         save_processed_data = self.save_processed_data
         
         data_plot1 = np.zeros([buffer_chunks*nbr_buffers_plot,ai_nbr_channels])
-        data_plot2 = np.zeros(buffer_chunks*nbr_buffers_plot)    
+        data_plot2 = np.zeros([buffer_chunks*nbr_buffers_plot,1])    
         data_plot3 = np.zeros([buffer_chunks*nbr_buffers_plot,3])  
         
         tiempo_vec = np.arange(0,data_plot1.shape[0])/data_plot1.shape[0]
@@ -296,23 +297,27 @@ class pid_daq(object):
         ax2 = ax1.twinx()
         
         line1 = []
-        for i in range(ai_nbr_channels):
+        for i in range(data_plot1.shape[1]):
             line, = ax1.plot(tiempo_vec,data_plot1[:,i], '-')  
             line1.append(line)
-        line2, = ax2.plot(tiempo_vec,data_plot2, '-',color='red')
-        txt_now = ax1.text(1.01,1.1,now,fontsize=default_fontsize,transform = ax1.transAxes)
         ax1.set_ylim([ax1_lim_i,ax1_lim_f])
-        ax2.set_ylim([ax2_lim_i,ax2_lim_f])
         ax1.set_xlabel('tiempo [s]',fontsize = plot_fontsize)
-        ax2.set_ylabel('duty cycle',fontsize = plot_fontsize)
-        ax1.set_ylabel('mean [V]',fontsize = plot_fontsize)   
-        setpoint_line = ax1.axhline(setpoint,linestyle='--',linewidth=0.8)
+        ax1.set_ylabel('mean [V]',fontsize = plot_fontsize)  
+        ax1.xaxis.set_tick_params(labelsize=plot_fontsize)    
+        ax1.yaxis.set_tick_params(labelsize=plot_fontsize)         
+        ax1.grid(linestyle='--',linewidth=0.3)       
         
-        ax1.xaxis.set_tick_params(labelsize=plot_fontsize)
+        line2 = []
+        for i in range(data_plot2.shape[1]):
+            line, = ax2.plot(tiempo_vec,data_plot2[:,i], '-',color='red')  
+            line2.append(line)
+        ax2.set_ylim([ax2_lim_i,ax2_lim_f])
+        ax2.set_ylabel('duty cycle',fontsize = plot_fontsize)
         ax2.xaxis.set_tick_params(labelsize=plot_fontsize)
-        ax1.yaxis.set_tick_params(labelsize=plot_fontsize)
-        ax2.yaxis.set_tick_params(labelsize=plot_fontsize)   
-        ax1.grid(linestyle='--',linewidth=0.3)   
+        ax2.yaxis.set_tick_params(labelsize=plot_fontsize)  
+        
+        setpoint_line = ax1.axhline(setpoint,linestyle='--',linewidth=0.8)
+        txt_now = ax1.text(1.01,1.1,now,fontsize=default_fontsize,transform = ax1.transAxes)
     
         ##
         ax3 = fig.add_axes([.10, .71, .70, .27])  
@@ -442,13 +447,20 @@ class pid_daq(object):
         axstop = plt.axes([0.88, 0.35, 0.1, 0.075])
         bstop = Button(axstop, 'Stop')
         bstop.on_clicked(self.exit_callback) 
+        bstop.label.set_size(10)
         
         axonoff = plt.axes([0.88, 0.25, 0.1, 0.075])
         bonoff = Button(axonoff, 'PID ON ')
-        bonoff.on_clicked(self.pid_onoff)  
+        bonoff.on_clicked(self.pid_onoff_callback)  
         bonoff.label.set_size(10)
         bonoff.label.set_backgroundcolor([1,1,1,0.8])
         bonoff.label.set_color([0.,0.99,0.])
+
+        axpidk = plt.axes([0.92, 0.88, 0.075, 0.075])
+        bpidk = Button(axpidk, 'PID   ')
+        bpidk.on_clicked(self.pid_constants_callback)  
+        bpidk.label.set_size(10)
+        
         
         # Slider setpoit
         axcolor = 'lightgoldenrodyellow'
@@ -492,6 +504,8 @@ class pid_daq(object):
         self.bstop = bstop
         self.axonoff = axonoff
         self.bonoff = bonoff
+        self.axpidk = axpidk
+        self.bpidk = bpidk
         self.axsetpoint = axsetpoint
         self.ssetpoint = ssetpoint
         self.axkp = axkp
@@ -522,23 +536,35 @@ class pid_daq(object):
         self.setpoint = setpoint
         self.kp = kp
         self.ki = ki
-        self.lkd = kd
+        self.kd = kd
         self.isteps = isteps
         
         
-    def pid_onoff(self,event):
+    def pid_onoff_callback(self,event):
         
         pid_onoff_button = self.pid_onoff_button
         bonoff = self.bonoff
         
         if pid_onoff_button is True:
-            pid_onoff_button = False
+            self.pid_onoff_button = False
             bonoff.label.set_text('PID OFF')
             bonoff.label.set_color([0.99,0.0,0.])
         else:
-            pid_onoff_button = True  
+            self.pid_onoff_button = True  
             bonoff.label.set_text('PID ON ')
             bonoff.label.set_color([0.,0.99,0.])            
+
+    def pid_constants_callback(self,event):
+        
+        pid_costants_button = self.pid_costants_button
+        bpidk = self.bpidk
+        
+        if pid_costants_button is True:
+            self.pid_costants_button = False
+            bpidk.label.set_text('PID   ')
+        else:
+            self.pid_costants_button = True  
+            bpidk.label.set_text('PID*K')
              
 
     def inicializa_semaforos(self):
@@ -614,6 +640,7 @@ class pid_daq(object):
 #                i = i%buffer_chunks                  
 
         i = 0
+        dt = self.ai_samples/self.ai_samplerate-0.0005
         while not self.evento_salida.is_set():
     
             medicion = np.zeros([ai_nbr_channels,ai_samples])
@@ -629,7 +656,14 @@ class pid_daq(object):
             self.semaphore1.release() 
             self.semaphore3.release()
             
-            time.sleep(self.ai_samples/self.ai_samplerate-0.0005)
+#            prev = datetime.datetime.now()
+#            delta_s = 0
+#            while delta_s < dt:
+#                now = datetime.datetime.now()
+#                delta_s = (now-prev)
+#                delta_s = delta_s.total_seconds()
+#                time.sleep(0.001)
+            time.sleep(dt)
             
             i = i+1
             i = i%buffer_chunks  
@@ -659,7 +693,7 @@ class pid_daq(object):
     
             ## Inicio Callback      
             self.output_buffer_mean_data[i,:] = np.mean(self.input_buffer[i,:,:],axis=0)
-            self.output_buffer_error_data[i] = self.output_buffer_mean_data[i,0] - self.setpoint              
+            self.output_buffer_error_data[i,0] = self.output_buffer_mean_data[i,0] - self.setpoint              
             self.output_buffer_pid_constants[i,:] = np.array([self.setpoint,self.kp,self.ki,self.kd,self.isteps])
          
             # funcion de callback
@@ -669,10 +703,10 @@ class pid_daq(object):
             if self.pid_onoff_button is False:
                 output_buffer_duty_cycle_i = initial_do_duty_cycle
 
-            self.output_buffer_duty_cycle[i] = output_buffer_duty_cycle_i       
+            self.output_buffer_duty_cycle[i,0] = output_buffer_duty_cycle_i       
             self.output_buffer_pid_terminos[i,:] = np.array([termino_p, termino_i, termino_d])            
             self.output_buffer_pid_constants[i,:] = np.array([setpoint,kp,ki,kd,isteps])    
-            self.output_buffer_error_data[i] = output_buffer_error_data_i  
+            self.output_buffer_error_data[i,0] = output_buffer_error_data_i  
             self.output_buffer_semaforos[i,:] = np.array([self.semaphore1._value, self.semaphore2._value, self.semaphore3._value, self.semaphore4._value, self.semaphore5._value])
             self.output_buffer_timestamp[i] = now
             ## Fin callback
@@ -756,13 +790,13 @@ class pid_daq(object):
                     jj = (j+sub_chunk_save-1)%buffer_chunks + 1 
                     
                     try:
-                        self.save_to_np_file(path_duty_cycle_data, self.output_buffer_duty_cycle[j:jj]) 
+                        self.save_to_np_file(path_duty_cycle_data, self.output_buffer_duty_cycle[j:jj,0]) 
                     except:
                         warning_string = 'Error: No se guarda duty cycle'
                         self.warning_callback(warning_string)                        
     
                     try:
-                        self.save_to_np_file(path_mean_data, self.output_buffer_mean_data[j:jj]) 
+                        self.save_to_np_file(path_mean_data, self.output_buffer_mean_data[j:jj,0]) 
                     except:
                         warning_string = 'Error: No se guarda mean data'
                         self.warning_callback(warning_string)                             
@@ -797,7 +831,6 @@ class pid_daq(object):
     
     def plot_thread(self):
 
-        ai_nbr_channels = self.ai_nbr_channels
         buffer_chunks = self.buffer_chunks
         show_plot = self.show_plot
         sub_chunk_plot = self.sub_chunk_plot
@@ -810,6 +843,17 @@ class pid_daq(object):
         delta_t = np.array([])
         delta_t_avg = 10
         measure_adq_ratio = 0   
+        
+        # Data
+        data_plot1 = self.data_plot1
+        data_plot2 = self.data_plot2
+        data_plot3 = self.data_plot3
+        
+        line1 = self.line1
+        line2 = self.line2
+        line3 = self.line3
+        setpoint_line = self.setpoint_line
+        
            
                 
         i = 0
@@ -852,22 +896,13 @@ class pid_daq(object):
                     measure_adq_ratio = (ai_samples/ai_samplerate*sub_chunk_plot)/delta_t.mean()
            
                 # Data update
-                self.data_plot1[0:-sub_chunk_plot,:] = self.data_plot1[sub_chunk_plot:,:]
-                self.data_plot1[-sub_chunk_plot:,:] = self.output_buffer_mean_data[j:jj,:]
-                
-                self.data_plot2[0:-sub_chunk_plot] = self.data_plot2[sub_chunk_plot:]   
-                self.data_plot2[-sub_chunk_plot:] = self.output_buffer_duty_cycle[j:jj]
-                                         
-                for k in range(ai_nbr_channels): 
-                    self.line1[k].set_ydata(self.data_plot1[:,k])                    
-                self.line2.set_ydata(self.data_plot2) 
-    
-                self.setpoint_line.set_ydata(self.output_buffer_pid_constants[i,0])
-                
-                self.data_plot3[0:-sub_chunk_plot,:] = self.data_plot3[sub_chunk_plot:,:]
-                self.data_plot3[-sub_chunk_plot:,:] = self.output_buffer_pid_terminos[j:jj,:]
-                for k in range(self.data_plot3.shape[1]): 
-                    self.line3[k].set_ydata(self.data_plot3[:,k])             
+                self.update_plot(data_plot1,line1,self.output_buffer_mean_data,sub_chunk_plot,j,jj)
+                self.update_plot(data_plot2,line2,self.output_buffer_duty_cycle,sub_chunk_plot,j,jj)
+                if not self.pid_costants_button:
+                    self.update_plot(data_plot3,line3,self.output_buffer_pid_terminos,sub_chunk_plot,j,jj)
+                else:
+                    self.update_plot(data_plot3,line3,self.output_buffer_pid_terminos*self.output_buffer_pid_constants[:,1:4],sub_chunk_plot,j,jj)
+                setpoint_line.set_ydata(self.output_buffer_pid_constants[i,0])
  
                 # Textos
                 self.txt_now.set_text(now)
@@ -1023,6 +1058,14 @@ class pid_daq(object):
             self.skd.valmax = kd_max
             self.skd.ax.set_xlim(kd_min,kd_max) 
 
+    def update_plot(self,data_plot,line_plot,output_buffer,sub_chunk_plot,j,jj):
+        
+            data_plot[0:-sub_chunk_plot,:] = data_plot[sub_chunk_plot:,:]
+            data_plot[-sub_chunk_plot:,:] = output_buffer[j:jj,:]
+                                                
+            for k in range(data_plot.shape[1]): 
+                line_plot[k].set_ydata(data_plot[:,k])  
+                
 
     def inicializa_threads(self):    
         self.t1 = threading.Thread(target=self.writer_thread, args=[])
@@ -1120,7 +1163,7 @@ def callback_pid(self,i):
     ki = self.output_buffer_pid_constants[i,2]
     kd = self.output_buffer_pid_constants[i,3]
     isteps = int(self.output_buffer_pid_constants[i,4])
-    output_buffer_error_data_i = self.output_buffer_error_data[i]
+    output_buffer_error_data_i = self.output_buffer_error_data[i,0]
     mean_data_i = self.output_buffer_mean_data[i,0]
     sample_period = self.sample_period
         
