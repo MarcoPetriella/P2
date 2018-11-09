@@ -468,15 +468,20 @@ def load_from_np_file(filename):
     return array      
 
 
-array = load_from_np_file('PID2\experimento1_pid_constants.bin')
-array1 = load_from_np_file('PID2\experimento1_mean_data.bin')
-array2 = load_from_np_file('PID2\experimento1_duty_cycle.bin')
+
+array2 = load_from_np_file('PID3\experimento_semaforos.bin')
 
 #array = load_from_np_file('PID2\experimento1_pid_terminos.bin')
 
 
-plt.plot(array1[:,:])
-plt.plot(array2[:])
+plt.plot(array2[:,0],label='sem1')
+plt.plot(array2[:,1],label='sem2')
+plt.plot(array2[:,2],label='sem3')
+plt.plot(array2[:,3],label='sem4')
+plt.plot(array2[:,4],label='sem5')
+
+plt.legend()
+
 plt.plot(array[210,:,0])
 
 #%%
