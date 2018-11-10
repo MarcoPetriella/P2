@@ -469,17 +469,20 @@ def load_from_np_file(filename):
 
 
 
-array2 = load_from_np_file('PID3\experimento_semaforos.bin')
+array2 = load_from_np_file('PID3\experimento_raw_data.bin')
 
 #array = load_from_np_file('PID2\experimento1_pid_terminos.bin')
 
 
+plt.imshow(array2[:,:,0])
+
 plt.plot(array2[:,0],label='sem1')
 plt.plot(array2[:,1],label='sem2')
-plt.plot(array2[:,2],label='sem3')
-plt.plot(array2[:,3],label='sem4')
-plt.plot(array2[:,4],label='sem5')
-
+#plt.plot(array2[:,2],label='sem3')
+#plt.plot(array2[:,3],label='sem4')
+#plt.plot(array2[:,4],label='sem5')
+plt.xlim([0,700])
+plt.ylim([0,5])
 plt.legend()
 
 plt.plot(array[210,:,0])

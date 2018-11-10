@@ -81,6 +81,23 @@ class pid_daq(object):
         # Valores de la placa de adquisicion
         self.max_duty_cycle = 0.999
         self.min_duty_cycle = 0.001        
+
+#        self.p = pyaudio.PyAudio()
+#        
+#        self.stream_output = self.p.open(format=pyaudio.paFloat32,
+#                        channels = 1,
+#                        rate = self.ai_samplerate,
+#                        output = True,                  
+#        )        
+#        
+#        self.stream_input = self.p.open(format = pyaudio.paInt16 ,
+#                        channels = 1,
+#                        rate = self.ai_samplerate,
+#                        input = True,
+#                        frames_per_buffer = self.ai_samples*4,
+#        )
+
+
                        
         
     def acondiciona_variables(self):
@@ -610,6 +627,25 @@ class pid_daq(object):
             
             i = i+1
             i = i%buffer_chunks           
+
+#        #self.stream_output.start_stream()
+#        samples_out = np.zeros(self.ai_samples*4)
+#
+#        tt = np.arange(4*ai_samples)/ai_samples/ai_samplerate/4
+#        
+#        i = 0
+#        while not self.evento_salida.is_set():
+#            
+#            self.semaphore2.acquire()   
+#            #time.sleep(0.008)
+#            #digi_s.write_one_sample_pulse_frequency(frequency = initial_do_frequency, duty_cycle = output_buffer_duty_cycle[i])
+#            samples_out = 1.0*np.sin(2*np.pi*i*100*tt) # + np.random.rand(ai_samples)
+#            self.stream_output.write(samples_out)
+#            
+#            i = i+1
+#            i = i%buffer_chunks  
+#
+#        #self.stream_output.stop_stream()
                
     # Defino el thread que adquiere la señal   
     def reader_thread(self):
@@ -639,60 +675,19 @@ class pid_daq(object):
 #                i = i+1
 #                i = i%buffer_chunks                  
 
-#        i = 0
-#        dt = self.ai_samples/self.ai_samplerate-0.0005
-#        while not self.evento_salida.is_set():
-#    
-#            medicion = np.zeros([ai_nbr_channels,ai_samples])
-#            #medicion[0,:] = np.arange(0,ai_samples)
-#            tt = i*ai_samples/ai_samplerate + np.arange(ai_samples)/ai_samples/ai_samplerate
-#            medicion[0,:] = 2.1 + 1.0*np.sin(2*np.pi*0.2*tt) + np.random.rand(ai_samples)
-#            #medicion[1,:] = 1 + np.random.rand(ai_samples)
-#            medicion = np.reshape(medicion,ai_nbr_channels*ai_samples,order='F')
-#            
-#            for j in range(ai_nbr_channels):
-#                self.input_buffer[i,:,j] = medicion[j::ai_nbr_channels]  
-#            
-#            self.semaphore1.release() 
-#            self.semaphore3.release()
-#            
-##            prev = datetime.datetime.now()
-##            delta_s = 0
-##            while delta_s < dt:
-##                now = datetime.datetime.now()
-##                delta_s = (now-prev)
-##                delta_s = delta_s.total_seconds()
-##                time.sleep(0.001)
-#            time.sleep(dt)
-#            
-#            i = i+1
-#            i = i%buffer_chunks  
-
-    # Defino el stream del microfono
-    
-    
-    
-        p = pyaudio.PyAudio()
-        
-        stream_output = p.open(format=pyaudio.paFloat32,
-                        channels = 1,
-                        rate = 44100,
-                        output = True,                  
-        )        
-        
-        stream_input = p.open(format = pyaudio.paInt16 ,
-                        channels = 1,
-                        rate = 44100,
-                        input = True,
-                        frames_per_buffer = ai_samples,
-        )
-
         i = 0
+        dt = self.ai_samples/self.ai_samplerate-0.0005
         while not self.evento_salida.is_set():
     
-            #stream_input.start_stream()
-            stream_input.read(ai_samples)  
-            #stream_input.stop_stream()  
+            medicion = np.zeros([ai_nbr_channels,ai_samples])
+            #medicion[0,:] = np.arange(0,ai_samples)
+            tt = i*ai_samples/ai_samplerate + np.arange(ai_samples)/ai_samples/ai_samplerate
+            medicion[0,:] = 2.1 + 1.0*np.sin(2*np.pi*0.2*tt) + np.random.rand(ai_samples)
+            #medicion[1,:] = 1 + np.random.rand(ai_samples)
+            medicion = np.reshape(medicion,ai_nbr_channels*ai_samples,order='F')
+            
+            for j in range(ai_nbr_channels):
+                self.input_buffer[i,:,j] = medicion[j::ai_nbr_channels]  
             
             self.semaphore1.release() 
             self.semaphore3.release()
@@ -704,12 +699,43 @@ class pid_daq(object):
 #                delta_s = (now-prev)
 #                delta_s = delta_s.total_seconds()
 #                time.sleep(0.001)
+            time.sleep(dt)
             
             i = i+1
             i = i%buffer_chunks  
-        
-        stream_input.close()
-        p.terminate()
+
+    # Defino el stream del microfono
+    
+    
+#        self.stream_input.start_stream()
+#        i = 0
+#        while not self.evento_salida.is_set():
+#    
+#            #self.stream_input.start_stream()
+#            data_i = self.stream_input.read(ai_samples)  
+#            #self.stream_input.stop_stream()  
+#            data_i = -np.frombuffer(data_i, dtype=np.int16) 
+#            #stream_input.stop_stream()  
+#            
+#            self.input_buffer[i,:,0] = data_i.astype(np.float)
+#            
+#            self.semaphore1.release() 
+#            self.semaphore3.release()
+#            
+##            prev = datetime.datetime.now()
+##            delta_s = 0
+##            while delta_s < dt:
+##                now = datetime.datetime.now()
+##                delta_s = (now-prev)
+##                delta_s = delta_s.total_seconds()
+##                time.sleep(0.001)
+#            
+#            i = i+1
+#            i = i%buffer_chunks  
+#        
+#        self.stream_input.start_stream()
+#        self.stream_input.close()
+#        self.p.terminate()
 
        
     # Thread del callback        
@@ -1255,7 +1281,7 @@ if not os.path.exists(carpeta_salida):
 # Variables 
 ai_channels = [4]
 buffer_chunks = 500
-ai_samples = 1000
+ai_samples = 500
 ai_samplerate = 50000
 do_channel = [0]
 initial_do_duty_cycle = 0.5
@@ -1284,7 +1310,7 @@ parametros['initial_do_duty_cycle'] = initial_do_duty_cycle
 parametros['initial_do_frequency'] = initial_do_frequency
 parametros['setpoint'] = setpoint
 parametros['pid_constants'] = [kp,ki,kd,isteps]
-parametros['save_raw_data'] = False
+parametros['save_raw_data'] = True
 parametros['save_processed_data'] = True
 parametros['path_data_save'] = path_data_save
 parametros['show_plot'] = True
@@ -1293,8 +1319,8 @@ parametros['callback_pid_variables'] = callback_pid_variables
 
 parametros['sub_chunk_save'] = 25
 parametros['sub_chunk_plot'] = 25
-parametros['nbr_buffers_plot'] = 2
-parametros['plot_rate_hz'] = 20
+parametros['nbr_buffers_plot'] = 10
+parametros['plot_rate_hz'] = 10
 
 adquisicion = pid_daq(parametros)
 adquisicion.configura_adquisicion()
