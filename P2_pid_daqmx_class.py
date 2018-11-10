@@ -639,19 +639,60 @@ class pid_daq(object):
 #                i = i+1
 #                i = i%buffer_chunks                  
 
+#        i = 0
+#        dt = self.ai_samples/self.ai_samplerate-0.0005
+#        while not self.evento_salida.is_set():
+#    
+#            medicion = np.zeros([ai_nbr_channels,ai_samples])
+#            #medicion[0,:] = np.arange(0,ai_samples)
+#            tt = i*ai_samples/ai_samplerate + np.arange(ai_samples)/ai_samples/ai_samplerate
+#            medicion[0,:] = 2.1 + 1.0*np.sin(2*np.pi*0.2*tt) + np.random.rand(ai_samples)
+#            #medicion[1,:] = 1 + np.random.rand(ai_samples)
+#            medicion = np.reshape(medicion,ai_nbr_channels*ai_samples,order='F')
+#            
+#            for j in range(ai_nbr_channels):
+#                self.input_buffer[i,:,j] = medicion[j::ai_nbr_channels]  
+#            
+#            self.semaphore1.release() 
+#            self.semaphore3.release()
+#            
+##            prev = datetime.datetime.now()
+##            delta_s = 0
+##            while delta_s < dt:
+##                now = datetime.datetime.now()
+##                delta_s = (now-prev)
+##                delta_s = delta_s.total_seconds()
+##                time.sleep(0.001)
+#            time.sleep(dt)
+#            
+#            i = i+1
+#            i = i%buffer_chunks  
+
+    # Defino el stream del microfono
+    
+    
+    
+        p = pyaudio.PyAudio()
+        
+        stream_output = p.open(format=pyaudio.paFloat32,
+                        channels = 1,
+                        rate = 44100,
+                        output = True,                  
+        )        
+        
+        stream_input = p.open(format = pyaudio.paInt16 ,
+                        channels = 1,
+                        rate = 44100,
+                        input = True,
+                        frames_per_buffer = ai_samples,
+        )
+
         i = 0
-        dt = self.ai_samples/self.ai_samplerate-0.0005
         while not self.evento_salida.is_set():
     
-            medicion = np.zeros([ai_nbr_channels,ai_samples])
-            #medicion[0,:] = np.arange(0,ai_samples)
-            tt = i*ai_samples/ai_samplerate + np.arange(ai_samples)/ai_samples/ai_samplerate
-            medicion[0,:] = 2.1 + 1.0*np.sin(2*np.pi*0.2*tt) + np.random.rand(ai_samples)
-            #medicion[1,:] = 1 + np.random.rand(ai_samples)
-            medicion = np.reshape(medicion,ai_nbr_channels*ai_samples,order='F')
-            
-            for j in range(ai_nbr_channels):
-                self.input_buffer[i,:,j] = medicion[j::ai_nbr_channels]  
+            #stream_input.start_stream()
+            stream_input.read(ai_samples)  
+            #stream_input.stop_stream()  
             
             self.semaphore1.release() 
             self.semaphore3.release()
@@ -663,10 +704,12 @@ class pid_daq(object):
 #                delta_s = (now-prev)
 #                delta_s = delta_s.total_seconds()
 #                time.sleep(0.001)
-            time.sleep(dt)
             
             i = i+1
             i = i%buffer_chunks  
+        
+        stream_input.close()
+        p.terminate()
 
        
     # Thread del callback        
