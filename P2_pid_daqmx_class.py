@@ -21,6 +21,71 @@ import os
 
 class pid_daq(object):
 
+    """
+    Descripción del programa
+    ------------------------
+    
+    Este programa utiliza la placa de adquisición de National Instruments USB 6210 para realizar un lazo de control PID.
+    Para ello utiliza las entradas analógicas para la medición del sensor y la salida digital en modo PWM para el control del actuador.
+    El control se realiza variando el duty cycle del tren de pulsos enviado. El programa utiliza un esquema multithreading para la realización 
+    de las distintas tareas que se describen a continuación:
+        - reader_thread: realiza la medición del sensor (chunk de ai_samples) y la escribe en una fila del buffer de entrada input_buffer (buffer de tiop circular).
+        - callback_thread: realiza el procesamiento de la señal adquirida, obtiene el duty cycle de salida y la escribe en el output_buffer (buffer de tiop circular).
+        - writer_thread: manda el duty cycle del PWM al instrumento, el cual está conectado al actuador
+        - data_writer1_thread: escribe el dato crudo del buffer_input en un archivo de salida
+        - data_writer2_thread: escribe el dato procesado por el thread callback y alojado en el output buffer en un archivo de salida
+        - plot_thread: realiza el muestreo de los datos procesados en el thread callback.
+        
+    Para la comunicación entre los threads se utilizan los siguientes semaforos:
+        - semaphore1: se incrementa cada vez que se recibe una medición (reader_thread) y decrementa cada vez que se lee un chunk en el callback_thread.
+        - semaphore2: se incrementa cada vez que se termina de procesar un chunk en el callback_thread y se escribe el output_buffer, 
+        y decrementa cada vez que se envia el duty cycle al instrumento en el writer_thread.
+        - semaphore3: se incrementa cada vez que se recibe una medición (reader_thread) y decrementa cada vez que se escribe un chunk de dato crudo en el archivo de salida (data_writer1_thread).
+        - semaphore4: se incrementa cada vez que se termina de procesar un chunk en el callback_thread y decrementa cada vez que se escribe el dato procesado en el archivo de salida (data_writer2_thread).
+        - semaphore5: se incrementa cada vez que se termina de procesar un chunk en el callback_thread y decrementa cada vez que se reciben los datos procesados para el muestreo de los mismos (plot_thread).
+        
+    Cada vez que se verifica overrun de cualquier semáforo, en el vaciado y llenado de los buffers de entrada y salida, la medición se interrumpe y se avisa la interrupción.
+    
+    La entrada de los parámetros de adquisición se realiza con un diccionario con las siguientes variables:
+        - buffer_chunks : int, cantidad de chunks de los buffers de entrada (input_buffer) y salida (output_buffer).
+        - ai_samples : int, cantidad de samples por chunk.
+        - ai_channels : lista de int de dos elementos, canales de medicion [canal_i, canal_f]. El control PID se realiza con el primer canal especificado. En caso de un canal, la lista es de un elemento [canal].
+        - ai_samplerate : int, frecuencia de sampleo de los canales analógicos. Tener en cuenta las limitaciones del instrumento cuando se trabaja con varios canales.
+        - ai_device : string, nombre del dispositivo analogico ej. 'Dev1/ai'
+        - do_device : string, nombre del dispositivo digital ej. 'Dev1/ctr'
+        - do_channel : lista de int de un elemento, [canal] por ahora solo esta habilitado un canal de salida.
+        - initial_do_duty_cycle : int, duty cycle inicial del PWM
+        - initial_do_frequency : int, frecuencia del PWM . La frecuencia no varía a lo largo de la medición.
+        - setpoint : float, setpoint en [V].
+        - pid_constants: lista de 4 elementos, 3 floats y 1 int. [kp,ki,kd,isteps]:
+            kp : float, constante multiplicativa
+            ki : float, constante integrativa
+            kd : float, constante derivativa
+            isteps : int, pasos para realizar el termino integral, debe ser menor a buffer_chunk.
+        - save_raw_data : bool True o False, guarda el dato crudo
+        - save_processed_data : bool True o False, guarda el dato procesado
+        - path_data_save : string, path de directorio donde se guardan los resultados. El directorio debe ser creado antes.
+        La primer dimensión corresponde al tiempo, es decir cada fila es un chunk. Se puede utilizar la función load_from_np_file(filename) para abrir los archivos.
+        Los archivos de salida son los siguientes:
+            path_data_save + '_raw_data.bin' : archivo binario para dato crudo. Es un array de tres dimensiones [:, ai_samples,ai_nbr_channels]
+            path_data_save + '_duty_cycle.bin' : archivo binario con duty_cycle. Es un array de una dimensión.
+            path_data_save + '_mean_data.bin' : archivo binario con valor medio de los canales. Es un array de dos dimensiones [:,ai_nbr_channels]
+            path_data_save + '_pid_constants.bin' : archivo binario con las constantes PID. Es un un array de dos dimensiones [:,setpoint kp ki kp isteps]
+            path_data_save + '_pid_terminos.bin' : archivo binario con los términos PID. Es un array de dos dimensiones [:, termino_p termino_i termino_p]                 
+        - show_plot : bool, actualiza el muestreo o no.
+        - callback_pid : function, función con el callback. Ver P2_corre_pid.py con ejemplo.
+        - callback_pid_variables : lista, lista donde se colocan las variables (definidas por el usuario) que pudiera utilizar el callback.
+        - sub_chunk_save : int, parámetro opcional. Especifica la cantidad de chunks que se guardan por vez.
+        - sub_chunk_plot : int, parámetro opcional. Especifica la cantidad de chunks que se muestran por vez.
+        - plot_rate_hz : int, parámetro opcional, pisa a sub_chunk_plot. Frecuencia de muestreo en Hz. Se aconseja frecuencias menores a 15 Hz. Hay que ver si con animation de matplotlib mejora.
+        
+        Al comenzar la adquisicón se abre la interfaz que permite visualizar la medición de los canales analógicos y el valor de duty cycle en el grafico1. Y los términos
+        multiplicativos, integrales, y derivativos del PID en el grafico2. Tambíen se permite el cambio de las constantes kp, ki, kd y la cantidad de pasos utilizados en el término integral.
+        
+        Autores: Leslie Cusato, Marco Petriella
+        Automatización y control - 2do cuatrimestre 2018
+    """    
+    
     def __init__(self, parametros):       
         self.parametros = parametros
         
@@ -344,7 +409,7 @@ class pid_daq(object):
             line, = ax3.plot(tiempo_vec,data_plot3[:,i], '-')  
             line3.append(line) 
         ax3.set_ylim([ax3_lim_i,ax3_lim_f])
-        ax3.legend(['P','I','D'],bbox_to_anchor=(1.01, 1.0))
+        ax3.legend(['P','I','D'],bbox_to_anchor=(1.01, 1.0),fontsize=9)
         
         ax3.xaxis.set_tick_params(labelsize=plot_fontsize)
         ax3.yaxis.set_tick_params(labelsize=plot_fontsize) 
@@ -903,6 +968,8 @@ class pid_daq(object):
         buffer_chunks = self.buffer_chunks
         show_plot = self.show_plot
         sub_chunk_plot = self.sub_chunk_plot
+        ai_samples = self.ai_samples
+        ai_samplerate = self.ai_samplerate
          
         # Contador de los semaforos
         x_semaphores = np.zeros(5)
@@ -911,7 +978,6 @@ class pid_daq(object):
         previous = datetime.datetime.now()
         delta_t = np.array([])
         delta_t_avg = 10
-        measure_adq_ratio = 0   
         
         # Data
         data_plot1 = self.data_plot1
@@ -947,22 +1013,12 @@ class pid_daq(object):
             
             if i%sub_chunk_plot == 0: 
                 
+                # Paso paro buffer
                 j = (i-sub_chunk_plot)%buffer_chunks  
                 jj = (j+sub_chunk_plot-1)%buffer_chunks + 1 
     
                 # Medición de tiempos
-                now = datetime.datetime.now()
-                delta_ti = now - previous
-                previous = now
-                now = now.strftime("%Y-%m-%d %H:%M:%S")
-                
-                delta_ti = delta_ti.total_seconds()
-                delta_t = np.append(delta_t,delta_ti)
-                if delta_t.shape[0] > delta_t_avg:
-                    delta_t = delta_t[-delta_t_avg:]
-               
-                if delta_t.mean() > 0:
-                    measure_adq_ratio = (ai_samples/ai_samplerate*sub_chunk_plot)/delta_t.mean()
+                now, previous, delta_t, measure_adq_ratio = self.measure_adq_ratio_function(previous,delta_t,delta_t_avg,ai_samples,ai_samplerate,sub_chunk_plot)
            
                 # Data update
                 self.update_plot(data_plot1,line1,self.output_buffer_mean_data,sub_chunk_plot,j,jj)
@@ -975,8 +1031,7 @@ class pid_daq(object):
  
                 # Textos
                 self.txt_now.set_text(now)
-                
-                # BUffer
+
                 x_semaphores[0] = (self.semaphore1._value/buffer_chunks)*100
                 x_semaphores[1] = (self.semaphore2._value/buffer_chunks)*100
                 x_semaphores[2] = (self.semaphore3._value/buffer_chunks)*100
@@ -1034,6 +1089,23 @@ class pid_daq(object):
             for item in arr:
                 f.write('%s \n' % item)            
 
+    def measure_adq_ratio_function(self,previous,delta_t,delta_t_avg,ai_samples,ai_samplerate,sub_chunk_plot):
+        # Medición de tiempos
+        now = datetime.datetime.now()
+        delta_ti = now - previous
+        previous = now
+        now = now.strftime("%Y-%m-%d %H:%M:%S")
+        
+        delta_ti = delta_ti.total_seconds()
+        delta_t = np.append(delta_t,delta_ti)
+        if delta_t.shape[0] > delta_t_avg:
+            delta_t = delta_t[-delta_t_avg:]
+            
+        measure_adq_ratio = 0
+        if delta_t.mean() > 0:
+            measure_adq_ratio = (ai_samples/ai_samplerate*sub_chunk_plot)/delta_t.mean()
+            
+        return now, previous, delta_t, measure_adq_ratio
     
     def load_from_np_file(self,filename):
     
@@ -1324,7 +1396,7 @@ parametros['plot_rate_hz'] = 10
 
 adquisicion = pid_daq(parametros)
 adquisicion.configura_adquisicion()
-#adquisicion.define_limites_de_plots(0,10,0,2,-5,5)
-#adquisicion.define_limites_sliders(0,100,0,50,0,50,0,25)
+adquisicion.define_limites_de_plots(0,10,0,2,-5,5)
+adquisicion.define_limites_sliders(0,100,0,50,0,50,0,25)
 adquisicion.start()        
         

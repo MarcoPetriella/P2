@@ -167,3 +167,259 @@ plt.plot(medicion[:,4],'.',label='CH6')
 plt.legend()
 
 
+#%%
+
+import matplotlib.pyplot as plt
+import numpy as np
+import numpy.fft as fft
+import os
+import matplotlib.pylab as pylab
+
+
+params = {'legend.fontsize': 14,
+          'figure.figsize': (14, 9),
+         'axes.labelsize': 24,
+         'axes.titlesize':18,
+         'font.size':18,
+         'xtick.labelsize':24,
+         'ytick.labelsize':24}
+pylab.rcParams.update(params)
+
+#%%
+######## Analisis tiempo intercanal
+
+carpeta_salida = 'Tiempointercanal'
+subcarpeta_salida = 'cuadrada'
+
+medicion = np.load(os.path.join(carpeta_salida,subcarpeta_salida, 'medicion.npy'))
+plt.plot(medicion)
+
+t = np.arange(0,medicion.shape[0])/samplerate
+
+media = np.mean(medicion[33000:49000,:], axis = 0)
+ruido = np.std(medicion[33000:49000,:], axis = 0)
+print(media)
+print(ruido)
+
+bins = 1000
+hist_frec_tot = np.zeros([bins,medicion.shape[1]])
+hist_tension_tot = np.zeros([bins,medicion.shape[1]])
+
+for i in range(medicion.shape[1]):
+    [hist_frec,hist_tension] = np.histogram(medicion[33000:49000,1],range=(0.8,1.2),bins=bins)
+    hist_tension = hist_tension[1:]
+    hist_frec_tot[:,i] = hist_frec
+    hist_tension_tot[:,i] = hist_tension
+    
+    ind = np.argmax(hist_frec)
+    v_max = hist_tension[ind]
+    
+    ind_r = np.argmin(np.abs(hist_frec - hist_frec[ind]/2))
+    v_ruido = np.abs(2*(hist_tension[ind] - hist_tension[ind_r]))    
+
+
+fig = plt.figure(dpi=250)
+ax = fig.add_axes([.12, .15, .35, .8])
+for i in range(1):
+    ax.plot(t,medicion[:,1],linewidth=2)
+ax.set_xlim([0.70,0.8])
+ax.set_ylim([0.97,1.010])
+ax.set_xlabel('Tiempo [s]')
+ax.set_ylabel('Tensión [V]')
+
+
+ax.grid(linestyle='--',linewidth=0.5)
+
+    
+ax1 = fig.add_axes([.60, .15, .35, .8])
+for i in range(1):
+    ax1.plot(hist_tension_tot[:,i],hist_frec_tot[:,i],linewidth=2)
+ax1.set_xlim([0.97,1.010])
+ax1.grid(linestyle='--',linewidth=0.5)
+ax1.set_xlabel('Tensión [V]')
+ax1.set_ylabel('Frecuencia')
+
+figname = os.path.join(carpeta_salida, 'ruido.png')
+fig.savefig(figname, dpi=300)  
+plt.close(fig) 
+
+##
+
+fig = plt.figure(dpi=250)
+ax = fig.add_axes([.15, .15, .75, .8])
+for i in range(1):
+    ax.plot(t,medicion[:,1],linewidth=2)
+ax.set_xlim([0.70,0.8])
+ax.set_ylim([0.97,1.010])
+ax.set_xlabel('Tiempo [s]')
+ax.set_ylabel('Tensión [V]')
+ax.grid(linestyle='--',linewidth=0.5)
+
+figname = os.path.join(carpeta_salida, 'tension_sep.png')
+fig.savefig(figname, dpi=300)  
+plt.close(fig) 
+
+
+
+fig = plt.figure(dpi=250) 
+ax1 = fig.add_axes([.15, .15, .75, .8])
+for i in range(1):
+    ax1.plot(hist_tension_tot[:,i],hist_frec_tot[:,i],linewidth=2)
+ax1.set_xlim([0.97,1.010])
+ax1.grid(linestyle='--',linewidth=0.5)
+ax1.set_xlabel('Tensión [V]')
+ax1.set_ylabel('Frecuencia')
+
+figname = os.path.join(carpeta_salida, 'ruido_sep.png')
+fig.savefig(figname, dpi=300)  
+plt.close(fig) 
+
+
+
+
+#%%
+
+
+
+def tiempo_intercanal(medicion,samplerate,vpp_por_dos,frec_rampa,carpeta_salida,subcarpeta_salida):
+
+    #t = np.arange(0,medicion.shape[0])/samplerate
+    
+    # Tiempo intercanal
+    delta_t_rampa = 1/frec_rampa
+    pendiente_dv_dt = vpp_por_dos/delta_t_rampa
+
+    medicion0 = np.zeros([medicion.shape[0],medicion.shape[1]])
+    for i in range(medicion.shape[1]):
+        medicion0[:,i] = medicion[:,0]
+    
+    delta_v = medicion - medicion0
+    delta_t = delta_v/pendiente_dv_dt
+    
+    bins = 1000
+    frec_hist = np.zeros([bins,medicion.shape[1]-1])
+    t_hist = np.zeros([bins,medicion.shape[1]-1])
+    
+    t_intecanales = np.zeros(medicion.shape[1]-1)
+    ruido_t_intercanales = np.zeros(medicion.shape[1]-1)
+    for i in range(medicion.shape[1]-1):
+    
+        [frec_i,t_i] = np.histogram(delta_t[:,i+1],range=(0,0.0001),bins=bins)
+        frec_hist[:,i] = frec_i
+        t_hist[:,i] = t_i[1:]
+        
+        ind = np.argmax(frec_i)
+        t_intecanales[i] = t_i[ind]
+        
+        ind_r = np.argmin(np.abs(frec_i - frec_i[ind]/2))
+        ruido_t_intercanales[i] = np.abs(2*(t_i[ind] - t_i[ind_r]))
+
+    
+    fig = plt.figure(dpi=250)
+    ax = fig.add_axes([.15, .15, .75, .8])
+    for i in range(t_hist.shape[1]):
+        ax.plot(t_hist[:,i]*1e6,frec_hist[:,i],linewidth=2,label='Ch' + str(i+2) +' - Ch1')
+    ax.axvline(1e6/samplerate,linestyle='--',color='red',label='Ch1 - Ch1')
+    ax.grid(linestyle='--',linewidth=0.5)
+    ax.set_xlim([0,1.25*1e6/samplerate])
+    ax.set_xlabel('Tiempo intercanal [$\mu$s]')
+    ax.set_ylabel('Frecuencia')
+    ax.legend()
+    
+    figname = os.path.join(carpeta_salida,subcarpeta_salida, 'intercanal.png')
+    fig.savefig(figname, dpi=300)  
+    plt.close(fig) 
+    
+    return pendiente_dv_dt,frec_hist,t_hist,t_intecanales,ruido_t_intercanales
+
+
+
+carpeta_salida = 'Tiempointercanal'
+subcarpeta_salida = 'rampa_2000hz_2ch'
+samplerate = 50000
+frec_rampa = 2000
+vpp_por_dos = 2*2
+t = np.arange(0,medicion.shape[0])/samplerate
+
+
+medicion = np.load(os.path.join(carpeta_salida,subcarpeta_salida, 'medicion.npy'))
+medicion = np.transpose(medicion)
+
+pendiente_dv_dt,frec_hist,t_hist,t_intecanales1,ruido_t_intercanales1 = tiempo_intercanal(medicion,samplerate,vpp_por_dos,frec_rampa,carpeta_salida,subcarpeta_salida)
+t_medio_intercanal1 = t_intecanales1[0]
+error_intercanal1 = ruido_t_intercanales1[0]
+
+carpeta_salida = 'Tiempointercanal'
+subcarpeta_salida = 'rampa_2000hz'
+samplerate = 50000
+frec_rampa = 2000
+vpp_por_dos = 2*2
+
+medicion = np.load(os.path.join(carpeta_salida,subcarpeta_salida, 'medicion.npy'))
+medicion = np.transpose(medicion)
+
+pendiente_dv_dt,frec_hist,t_hist,t_intecanales2,ruido_t_intercanales2 = tiempo_intercanal(medicion,samplerate,vpp_por_dos,frec_rampa,carpeta_salida,subcarpeta_salida)
+t_medio_intercanal2 = np.mean(np.diff(t_intecanales2))
+error_intercanal2 = ruido_t_intercanales2[0]
+
+carpeta_salida = 'Tiempointercanal'
+subcarpeta_salida = 'rampa_2000hz_5ch'
+samplerate = 50000
+frec_rampa = 2000
+vpp_por_dos = 2*2
+
+medicion = np.load(os.path.join(carpeta_salida,subcarpeta_salida, 'medicion.npy'))
+medicion = np.transpose(medicion)
+
+pendiente_dv_dt,frec_hist,t_hist,t_intecanales3,ruido_t_intercanales3 = tiempo_intercanal(medicion,samplerate,vpp_por_dos,frec_rampa,carpeta_salida,subcarpeta_salida)
+t_medio_intercanal3 = np.mean(np.diff(t_intecanales3))
+error_intercanal3 = ruido_t_intercanales3[0]
+
+
+####
+carpeta_salida = 'Tiempointercanal'
+subcarpeta_salida = 'rampa_2000hz_5ch'
+
+fig = plt.figure(dpi=250)
+ax = fig.add_axes([.15, .15, .75, .8])
+for i in range(medicion.shape[1]):
+    ax.plot(medicion[:,i],'.',markersize=10,label='CH' + str(i+1))
+ax.set_xlim([-5,35])
+ax.set_xlabel('Muestra')
+ax.set_ylabel('Tensión [V]')
+ax.grid(linestyle='--',linewidth=0.5)
+ax.legend()
+figname = os.path.join(carpeta_salida, subcarpeta_salida,'intercanal_tension.png')
+fig.savefig(figname, dpi=300)  
+plt.close(fig) 
+
+
+####
+canales = np.array([1,2,4,5])
+t_inter = np.array([1/samplerate,t_medio_intercanal1,t_medio_intercanal2,t_medio_intercanal3])
+error_t_inter = np.array([0,error_intercanal1,error_intercanal2,error_intercanal3])
+
+t_teo = 1/(np.arange(1,6))
+canales_teo = np.arange(1,6)
+
+
+fig = plt.figure(dpi=250)
+ax = fig.add_axes([.15, .15, .75, .8])
+#ax.errorbar(canales,samplerate*t_inter,yerr=samplerate*error_t_inter,fmt='o')
+ax.plot(canales,samplerate*t_inter,'o',markersize=10,label = 'Medido')
+ax.plot(canales_teo,t_teo,linewidth=2,label = 'Esperado')
+ax.set_xlabel('Nro. canales')
+ax.set_ylabel('Tiempo Intercanal normalizado') #[$\Delta$t * frec_sampleo]
+ax.legend()
+ax.grid(linestyle='--',linewidth=0.5)
+ax.set_ylim([0,1.2])
+ax.set_xticks([1,2,3,4,5])
+
+figname = os.path.join(carpeta_salida, 'intercanal_tot.png')
+fig.savefig(figname, dpi=300)  
+plt.close(fig) 
+
+
+## ruido campana
+
+ruido_en_t = ruido[0]/pendiente_dv_dt
