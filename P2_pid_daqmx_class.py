@@ -143,27 +143,18 @@ class pid_daq(object):
         self.ax3_lim_i = -2
         self.ax3_lim_f = 2 
         
+        # Overrun de semaforos
+        buffer_chunks = self.buffer_chunks
+        self.semaforo1_ovr = buffer_chunks
+        self.semaforo2_ovr = buffer_chunks
+        self.semaforo3_ovr = buffer_chunks
+        self.semaforo4_ovr = buffer_chunks
+        self.semaforo5_ovr = buffer_chunks
+        
         # Valores de la placa de adquisicion
         self.max_duty_cycle = 0.999
-        self.min_duty_cycle = 0.001        
-
-#        self.p = pyaudio.PyAudio()
-#        
-#        self.stream_output = self.p.open(format=pyaudio.paFloat32,
-#                        channels = 1,
-#                        rate = self.ai_samplerate,
-#                        output = True,                  
-#        )        
-#        
-#        self.stream_input = self.p.open(format = pyaudio.paInt16 ,
-#                        channels = 1,
-#                        rate = self.ai_samplerate,
-#                        input = True,
-#                        frames_per_buffer = self.ai_samples*4,
-#        )
-
-
-                       
+        self.min_duty_cycle = 0.001  
+                     
         
     def acondiciona_variables(self):
         # Archivos de salida
@@ -174,6 +165,7 @@ class pid_daq(object):
         self.path_pid_terminos = self.path_data_save + '_pid_terminos.bin'
         self.path_semaforos = self.path_data_save + '_semaforos.bin'
         self.path_timestamp = self.path_data_save + '_timestamp.txt'
+        self.path_parametros = self.path_data_save + '_parametros_iniciales.txt'
         
         if self.save_raw_data:
             if os.path.exists(self.path_raw_data):
@@ -197,6 +189,9 @@ class pid_daq(object):
 
             if os.path.exists(self.path_timestamp):
                 os.remove(self.path_timestamp)  
+                
+            if os.path.exists(self.path_parametros):
+                os.remove(self.path_parametros)  
         
         parametros = self.parametros
         buffer_chunks = self.buffer_chunks
@@ -409,7 +404,7 @@ class pid_daq(object):
             line, = ax3.plot(tiempo_vec,data_plot3[:,i], '-')  
             line3.append(line) 
         ax3.set_ylim([ax3_lim_i,ax3_lim_f])
-        ax3.legend(['P','I','D'],bbox_to_anchor=(1.01, 1.0),fontsize=9)
+        ax3.legend(['P','I','D'],bbox_to_anchor=(1.13, 1.0),fontsize=9)
         
         ax3.xaxis.set_tick_params(labelsize=plot_fontsize)
         ax3.yaxis.set_tick_params(labelsize=plot_fontsize) 
@@ -657,6 +652,8 @@ class pid_daq(object):
         self.semaphore5 = threading.Semaphore(0) # Plot
 
 
+
+
     # Defino el thread que envia la señal          
     def writer_thread(self):  
         
@@ -693,24 +690,7 @@ class pid_daq(object):
             i = i+1
             i = i%buffer_chunks           
 
-#        #self.stream_output.start_stream()
-#        samples_out = np.zeros(self.ai_samples*4)
-#
-#        tt = np.arange(4*ai_samples)/ai_samples/ai_samplerate/4
-#        
-#        i = 0
-#        while not self.evento_salida.is_set():
-#            
-#            self.semaphore2.acquire()   
-#            #time.sleep(0.008)
-#            #digi_s.write_one_sample_pulse_frequency(frequency = initial_do_frequency, duty_cycle = output_buffer_duty_cycle[i])
-#            samples_out = 1.0*np.sin(2*np.pi*i*100*tt) # + np.random.rand(ai_samples)
-#            self.stream_output.write(samples_out)
-#            
-#            i = i+1
-#            i = i%buffer_chunks  
-#
-#        #self.stream_output.stop_stream()
+
                
     # Defino el thread que adquiere la señal   
     def reader_thread(self):
@@ -757,64 +737,27 @@ class pid_daq(object):
             self.semaphore1.release() 
             self.semaphore3.release()
             
-#            prev = datetime.datetime.now()
-#            delta_s = 0
-#            while delta_s < dt:
-#                now = datetime.datetime.now()
-#                delta_s = (now-prev)
-#                delta_s = delta_s.total_seconds()
-#                time.sleep(0.001)
             time.sleep(dt)
             
             i = i+1
             i = i%buffer_chunks  
 
-    # Defino el stream del microfono
-    
-    
-#        self.stream_input.start_stream()
-#        i = 0
-#        while not self.evento_salida.is_set():
-#    
-#            #self.stream_input.start_stream()
-#            data_i = self.stream_input.read(ai_samples)  
-#            #self.stream_input.stop_stream()  
-#            data_i = -np.frombuffer(data_i, dtype=np.int16) 
-#            #stream_input.stop_stream()  
-#            
-#            self.input_buffer[i,:,0] = data_i.astype(np.float)
-#            
-#            self.semaphore1.release() 
-#            self.semaphore3.release()
-#            
-##            prev = datetime.datetime.now()
-##            delta_s = 0
-##            while delta_s < dt:
-##                now = datetime.datetime.now()
-##                delta_s = (now-prev)
-##                delta_s = delta_s.total_seconds()
-##                time.sleep(0.001)
-#            
-#            i = i+1
-#            i = i%buffer_chunks  
-#        
-#        self.stream_input.start_stream()
-#        self.stream_input.close()
-#        self.p.terminate()
-
-       
+  
     # Thread del callback        
     def callback_thread(self):
+        
+        semaforo1_ovr = self.semaforo1_ovr
+        semaforo2_ovr = self.semaforo2_ovr
                 
         i = 0
         while not self.evento_salida.is_set(): 
             
 
-            if self.semaphore1._value > buffer_chunks:
+            if self.semaphore1._value > semaforo1_ovr:
                 error_string = 'Hay overrun en llenado del input_buffer!'
                 self.exit_callback1(error_string)        
                             
-            if self.semaphore2._value > buffer_chunks:
+            if self.semaphore2._value > semaforo2_ovr:
                 error_string = 'Hay overrun en el vaciado del output_buffer!'
                 self.exit_callback1(error_string)            
             
@@ -859,6 +802,7 @@ class pid_daq(object):
         sub_chunk_save = self.sub_chunk_save
         buffer_chunks = self.buffer_chunks
         path_raw_data= self.path_raw_data
+        semaforo3_ovr = self.semaforo3_ovr
         
         i = 0
         
@@ -870,7 +814,7 @@ class pid_daq(object):
                         
             while not self.evento_salida.is_set():  
     
-                if self.semaphore3._value > buffer_chunks:
+                if self.semaphore3._value > semaforo3_ovr:
                     error_string = 'Hay overrun en la escritura de datos raw data!'
                     self.exit_callback1(error_string)               
                 
@@ -902,6 +846,7 @@ class pid_daq(object):
         path_pid_terminos = self.path_pid_terminos
         path_semaforos = self.path_semaforos
         path_timestamp = self.path_timestamp
+        semaforo4_ovr = self.semaforo4_ovr
                 
         i = 0
         
@@ -912,7 +857,7 @@ class pid_daq(object):
     
             while not self.evento_salida.is_set(): 
     
-                if self.semaphore4._value > buffer_chunks:    
+                if self.semaphore4._value > semaforo4_ovr:    
                     error_string = 'Hay overrun en la escritura de datos duty cycle!'
                     self.exit_callback1(error_string)                          
                 
@@ -970,6 +915,11 @@ class pid_daq(object):
         sub_chunk_plot = self.sub_chunk_plot
         ai_samples = self.ai_samples
         ai_samplerate = self.ai_samplerate
+        semaforo5_ovr = self.semaforo5_ovr
+        semaforo4_ovr = self.semaforo4_ovr
+        semaforo3_ovr = self.semaforo3_ovr
+        semaforo2_ovr = self.semaforo2_ovr
+        semaforo1_ovr = self.semaforo1_ovr
          
         # Contador de los semaforos
         x_semaphores = np.zeros(5)
@@ -994,7 +944,7 @@ class pid_daq(object):
         i = 0
         while not self.evento_salida.is_set(): 
         
-            if self.semaphore5._value > buffer_chunks:
+            if self.semaphore5._value > semaforo5_ovr:
                     error_string = 'Hay overrun en el plot!'
                     self.exit_callback1(error_string)         
 
@@ -1032,11 +982,11 @@ class pid_daq(object):
                 # Textos
                 self.txt_now.set_text(now)
 
-                x_semaphores[0] = (self.semaphore1._value/buffer_chunks)*100
-                x_semaphores[1] = (self.semaphore2._value/buffer_chunks)*100
-                x_semaphores[2] = (self.semaphore3._value/buffer_chunks)*100
-                x_semaphores[3] = (self.semaphore4._value/buffer_chunks)*100
-                x_semaphores[4] = (self.semaphore5._value/buffer_chunks)*100
+                x_semaphores[0] = (self.semaphore1._value/semaforo1_ovr)*100
+                x_semaphores[1] = (self.semaphore2._value/semaforo2_ovr)*100
+                x_semaphores[2] = (self.semaphore3._value/semaforo3_ovr)*100
+                x_semaphores[3] = (self.semaphore4._value/semaforo4_ovr)*100
+                x_semaphores[4] = (self.semaphore5._value/semaforo5_ovr)*100
                 
                 self.monitoring_txt0.set_text('%2d' % x_semaphores[0] + ' %')
                 self.monitoring_txt1.set_text('%2d' % x_semaphores[1] + ' %')
@@ -1087,7 +1037,32 @@ class pid_daq(object):
     def save_to_txt_file(self, filename,arr):
         with open(filename,'a') as f:    
             for item in arr:
-                f.write('%s \n' % item)            
+                f.write('%s \n' % item)        
+
+
+    def save_parametros_to_txt_file(self, filename):
+        with open(filename,'w') as f:  
+            now = datetime.datetime.now()
+            now = now.strftime("%Y-%m-%d %H:%M:%S.%f")  
+            
+            f.write('%s : %s\n' % ('fecha_de_inicio',now))    
+            f.write('%s : %d\n' % ('buffer_chunks',self.buffer_chunks))                          
+            f.write('%s : %d\n' % ('ai_samples',self.ai_samples))         
+            f.write('%s : %d\n' % ('ai_samplerate',self.ai_samplerate))       
+            f.write('%s : %s\n' % ('ai_device',self.ai_device))     
+            f.write('%s : %f\n' % ('ai_voltage_range',self.ai_voltage_range))  
+            f.write('%s : %s\n' % ('do_device',self.do_device))   
+            f.write('%s : %f\n' % ('initial_do_duty_cycle',self.initial_do_duty_cycle))  
+            f.write('%s : %d\n' % ('initial_do_frequency',self.initial_do_frequency))  
+            f.write('%s : %d\n' % ('save_raw_data',self.save_raw_data)) 
+            f.write('%s : %d\n' % ('save_processed_data',self.save_processed_data)) 
+            f.write('%s : %s\n' % ('path_data_save',self.path_data_save)) 
+            f.write('%s : %d\n' % ('show_plot',self.show_plot)) 
+            f.write('%s : %d\n' % ('sub_chunk_save',self.sub_chunk_save)) 
+            f.write('%s : %d\n' % ('sub_chunk_plot',self.sub_chunk_plot)) 
+            f.write('%s : %d\n' % ('nbr_buffers_plot',self.nbr_buffers_plot)) 
+            f.write('%s : %d,%d,%d,%d,%d \n' % ('semaforos_ovr',self.semaforo1_ovr,self.semaforo2_ovr,self.semaforo3_ovr,self.semaforo4_ovr,self.semaforo5_ovr)) 
+
 
     def measure_adq_ratio_function(self,previous,delta_t,delta_t_avg,ai_samples,ai_samplerate,sub_chunk_plot):
         # Medición de tiempos
@@ -1130,74 +1105,113 @@ class pid_daq(object):
 
 
     def define_limites_de_plots(self,
-        ax1_lim_i,
-        ax1_lim_f,
-        ax2_lim_i,
-        ax2_lim_f,
-        ax3_lim_i,
-        ax3_lim_f
+        ax1_range=[np.NaN,np.NaN],
+        ax2_range=[np.NaN,np.NaN],
+        ax3_range=[np.NaN,np.NaN]
     ):
-        if not 'ax1' in self.__dict__:
-            self.ax1_lim_i = ax1_lim_i
-            self.ax1_lim_f = ax1_lim_f
-        else:
-            self.ax1.set_ylim([ax1_lim_i,ax1_lim_f])
-            
-        if not 'ax' in self.__dict__:
-            self.ax2_lim_i = ax2_lim_i
-            self.ax2_lim_f = ax2_lim_f
-        else:
-            self.ax2.set_ylim([ax2_lim_i,ax2_lim_f])
-            
-        if not 'ax3' in self.__dict__:
-            self.ax3_lim_i = ax3_lim_i
-            self.ax3_lim_f = ax3_lim_f      
-        else:
-            self.ax3.set_ylim([ax3_lim_i,ax3_lim_f])
+        
+        ax1_lim_i = ax1_range[0]
+        ax1_lim_f = ax1_range[1]
+        ax2_lim_i = ax2_range[0]
+        ax2_lim_f = ax2_range[1]        
+        ax3_lim_i = ax3_range[0]
+        ax3_lim_f = ax1_range[1]
+        
+        if ax1_lim_i is not np.NaN and ax1_lim_f is not np.NaN:
+            if not 'ax1' in self.__dict__:
+                self.ax1_lim_i = ax1_lim_i
+                self.ax1_lim_f = ax1_lim_f
+            else:
+                self.ax1.set_ylim([ax1_lim_i,ax1_lim_f])
+                
+        if ax2_lim_i is not np.NaN and ax2_lim_f is not np.NaN:    
+            if not 'ax' in self.__dict__:
+                self.ax2_lim_i = ax2_lim_i
+                self.ax2_lim_f = ax2_lim_f
+            else:
+                self.ax2.set_ylim([ax2_lim_i,ax2_lim_f])
+                
+        if ax3_lim_i is not np.NaN and ax3_lim_f is not np.NaN:       
+            if not 'ax3' in self.__dict__:
+                self.ax3_lim_i = ax3_lim_i
+                self.ax3_lim_f = ax3_lim_f      
+            else:
+                self.ax3.set_ylim([ax3_lim_i,ax3_lim_f])
             
 
     def define_limites_sliders(self,
-        setpoint_min,
-        setpoint_max,
-        kp_min,
-        kp_max,
-        ki_min,
-        ki_max,
-        kd_min,
-        kd_max
+        setpoint_range = [np.NaN,np.NaN],
+        kp_range = [np.NaN,np.NaN],
+        ki_range = [np.NaN,np.NaN],
+        kd_range = [np.NaN,np.NaN],
     ):
         
-        if not 'ssetpoint' in self.__dict__: 
-            self.setpoint_min = setpoint_min
-            self.setpoint_max = setpoint_max            
-        else:  
-            self.ssetpoint.valmin = setpoint_min
-            self.ssetpoint.valmax = setpoint_max
-            self.ssetpoint.ax.set_xlim(setpoint_min,setpoint_max) 
+        setpoint_min = setpoint_range[0]
+        setpoint_max = setpoint_range[1]
+        kp_min = kp_range[0]
+        kp_max = kp_range[1]
+        ki_min = ki_range[0]
+        ki_max = ki_range[1]
+        kd_min = kd_range[0]
+        kd_max = kd_range[1]
+        
+        if setpoint_min is not np.NaN and setpoint_max is not np.NaN:
+            if not 'ssetpoint' in self.__dict__: 
+                self.setpoint_min = setpoint_min
+                self.setpoint_max = setpoint_max            
+            else:  
+                self.ssetpoint.valmin = setpoint_min
+                self.ssetpoint.valmax = setpoint_max
+                self.ssetpoint.ax.set_xlim(setpoint_min,setpoint_max) 
 
-        if not 'skp' in self.__dict__:  
-            self.kp_min = kp_min
-            self.kp_max = kp_max            
-        else:  
-            self.skp.valmin = kp_min
-            self.skp.valmax = kp_max
-            self.skp.ax.set_xlim(kp_min,kp_max) 
+        if kp_min is not np.NaN and kp_max is not np.NaN:
+            if not 'skp' in self.__dict__:  
+                self.kp_min = kp_min
+                self.kp_max = kp_max            
+            else:  
+                self.skp.valmin = kp_min
+                self.skp.valmax = kp_max
+                self.skp.ax.set_xlim(kp_min,kp_max) 
 
-        if not 'ski' in self.__dict__:   
-            self.ki_min = ki_min
-            self.ki_max = ki_max            
-        else:  
-            self.ski.valmin = ki_min
-            self.ski.valmax = ki_max
-            self.ski.ax.set_xlim(ki_min,ki_max) 
+        if ki_min is not np.NaN and ki_max is not np.NaN:
+            if not 'ski' in self.__dict__:   
+                self.ki_min = ki_min
+                self.ki_max = ki_max            
+            else:  
+                self.ski.valmin = ki_min
+                self.ski.valmax = ki_max
+                self.ski.ax.set_xlim(ki_min,ki_max) 
+        
+        if kd_min is not np.NaN and kd_max is not np.NaN:
+            if not 'skd' in self.__dict__:  
+                self.kd_min = kd_min
+                self.kd_max = kd_max            
+            else:  
+                self.skd.valmin = kd_min
+                self.skd.valmax = kd_max
+                self.skd.ax.set_xlim(kd_min,kd_max) 
+
+
+    def define_semaforos_overrun(self,
+        semaforo1_ovr = np.NaN,
+        semaforo2_ovr = np.NaN,
+        semaforo3_ovr = np.NaN,
+        semaforo4_ovr = np.NaN,
+        semaforo5_ovr = np.NaN
+    ):
+      
+        if semaforo1_ovr > 0 and semaforo1_ovr < self.buffer_chunks and semaforo1_ovr is not np.NaN:        
+            self.semaforo1_ovr = semaforo1_ovr
+        if semaforo2_ovr > 0 and semaforo2_ovr < self.buffer_chunks and semaforo2_ovr is not np.NaN:              
+            self.semaforo2_ovr = semaforo2_ovr
+        if semaforo3_ovr > 0 and semaforo3_ovr < self.buffer_chunks and semaforo3_ovr is not np.NaN:             
+            self.semaforo3_ovr = semaforo3_ovr
+        if semaforo4_ovr > 0 and semaforo4_ovr < self.buffer_chunks and semaforo4_ovr is not np.NaN:              
+            self.semaforo4_ovr = semaforo4_ovr            
+        if semaforo5_ovr > 0 and semaforo5_ovr < self.buffer_chunks and semaforo5_ovr is not np.NaN:             
+            self.semaforo5_ovr = semaforo5_ovr
             
-        if not 'skd' in self.__dict__:  
-            self.kd_min = kd_min
-            self.kd_max = kd_max            
-        else:  
-            self.skd.valmin = kd_min
-            self.skd.valmax = kd_max
-            self.skd.ax.set_xlim(kd_min,kd_max) 
+        
 
     def update_plot(self,data_plot,line_plot,output_buffer,sub_chunk_plot,j,jj):
         
@@ -1237,6 +1251,11 @@ class pid_daq(object):
                     
 
     def start(self):
+        
+        if self.save_raw_data or self.save_processed_data:
+            self.save_parametros_to_txt_file(self.path_parametros)
+            
+        
         if len(self.initialize_errors) == 0:
             self.t1.start()
             self.t2.start()
@@ -1334,7 +1353,7 @@ def callback_pid(self,i):
     
     output_buffer_duty_cycle_i =  kp*termino_p + ki*termino_i + kd*termino_d
     
-    #time.sleep(0.02)
+    #time.sleep(0.01)
 
     # Salida de la función
     output_buffer_duty_cycle_i = min(output_buffer_duty_cycle_i,max_duty_cycle)
@@ -1388,7 +1407,6 @@ parametros['path_data_save'] = path_data_save
 parametros['show_plot'] = True
 parametros['callback_pid'] = callback_pid    
 parametros['callback_pid_variables'] = callback_pid_variables
-
 parametros['sub_chunk_save'] = 25
 parametros['sub_chunk_plot'] = 25
 parametros['nbr_buffers_plot'] = 10
@@ -1396,7 +1414,8 @@ parametros['plot_rate_hz'] = 10
 
 adquisicion = pid_daq(parametros)
 adquisicion.configura_adquisicion()
-adquisicion.define_limites_de_plots(0,10,0,2,-5,5)
-adquisicion.define_limites_sliders(0,100,0,50,0,50,0,25)
+adquisicion.define_limites_de_plots(ax1_range=[0,5],ax2_range=[0,2],ax3_range=[-5,5])
+adquisicion.define_limites_sliders(setpoint_range=[0,5],kp_range=[0,50],ki_range=[0,50],kd_range=[0,25])
+adquisicion.define_semaforos_overrun(semaforo1_ovr = 5)
 adquisicion.start()        
         
