@@ -650,9 +650,7 @@ class pid_daq(object):
         self.semaphore3 = threading.Semaphore(0) # Guardado de raw data
         self.semaphore4 = threading.Semaphore(0) # Guardado de processed data
         self.semaphore5 = threading.Semaphore(0) # Plot
-
-
-
+        
 
     # Defino el thread que envia la señal          
     def writer_thread(self):  
@@ -963,13 +961,14 @@ class pid_daq(object):
             
             if i%sub_chunk_plot == 0: 
                 
-                # Paso paro buffer
+                # Paso para buffer
                 j = (i-sub_chunk_plot)%buffer_chunks  
                 jj = (j+sub_chunk_plot-1)%buffer_chunks + 1 
     
                 # Medición de tiempos
                 now, previous, delta_t, measure_adq_ratio = self.measure_adq_ratio_function(previous,delta_t,delta_t_avg,ai_samples,ai_samplerate,sub_chunk_plot)
-           
+                self.txt_now.set_text(now)
+            
                 # Data update
                 self.update_plot(data_plot1,line1,self.output_buffer_mean_data,sub_chunk_plot,j,jj)
                 self.update_plot(data_plot2,line2,self.output_buffer_duty_cycle,sub_chunk_plot,j,jj)
@@ -980,8 +979,6 @@ class pid_daq(object):
                 setpoint_line.set_ydata(self.output_buffer_pid_constants[i,0])
  
                 # Textos
-                self.txt_now.set_text(now)
-
                 x_semaphores[0] = (self.semaphore1._value/semaforo1_ovr)*100
                 x_semaphores[1] = (self.semaphore2._value/semaforo2_ovr)*100
                 x_semaphores[2] = (self.semaphore3._value/semaforo3_ovr)*100
@@ -1027,7 +1024,6 @@ class pid_daq(object):
     def exit_callback(self,event):  
         self.acquiring_errors.append('Medición interrumpida por el usuario')
         self.evento_salida.set()
-        
 
     def save_to_np_file(self,filename,arr):
         f_handle = open(filename, 'ab')
@@ -1253,8 +1249,7 @@ class pid_daq(object):
     def start(self):
         
         if self.save_raw_data or self.save_processed_data:
-            self.save_parametros_to_txt_file(self.path_parametros)
-            
+            self.save_parametros_to_txt_file(self.path_parametros)            
         
         if len(self.initialize_errors) == 0:
             self.t1.start()
