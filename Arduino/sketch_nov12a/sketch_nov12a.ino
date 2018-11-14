@@ -74,10 +74,13 @@ void setup() {
 
   int divi = 200;
   clock_ind = round(84000000/divi/clock_frequency);
+  clock_frequency = round(84000000/divi)/clock_ind;
   chunk_frequency = clock_frequency/samples_per_chunk;
   chunk_ind = round(84000000/divi/chunk_frequency);
+  chunk_frequency = round(84000000/divi)/chunk_ind;
   process_frequency = chunk_frequency;
   process_ind = round(84000000/divi/process_frequency);
+  process_frequency = round(84000000/divi)/process_ind;
 
   Serial.print("clock_frequency: ");
   Serial.println(clock_frequency);
@@ -189,6 +192,11 @@ void chunk_callback(){
   
     termino_i += (buffer_out[n] - buffer_out[jj]);
     Serial.println(buffer_out[n]);
+
+//    if (not n%chunk_save){
+//      byte* byteData = (byte*)(&buffer_out[n]);    // Casting to a byte pointer
+//      Serial.write(byteData, 4*chunk_save); 
+//    }
 
     vali += 1;
     analogWrite(DAC0, vali);   
