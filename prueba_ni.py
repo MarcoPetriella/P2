@@ -106,3 +106,15 @@ np.save(os.path.join(carpeta_salida,subcarpeta_salida, 'a'),a)
 np.save(os.path.join(carpeta_salida,subcarpeta_salida, 'frecs'),frecs)
 
 
+#%%
+
+
+carpeta_salida = 'USB6210'
+subcarpeta_salida = 'DIFFERENTIAL'
+
+medicion = np.load(os.path.join(carpeta_salida,subcarpeta_salida, 'a.npy'))
+plt.plot(np.transpose(medicion))
+
+
+
+

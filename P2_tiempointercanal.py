@@ -190,6 +190,7 @@ pylab.rcParams.update(params)
 
 carpeta_salida = 'Tiempointercanal'
 subcarpeta_salida = 'cuadrada'
+samplerate = 50000
 
 medicion = np.load(os.path.join(carpeta_salida,subcarpeta_salida, 'medicion.npy'))
 plt.plot(medicion)
@@ -242,6 +243,22 @@ ax1.set_ylabel('Frecuencia')
 figname = os.path.join(carpeta_salida, 'ruido.png')
 fig.savefig(figname, dpi=300)  
 plt.close(fig) 
+
+
+##
+from P2_funciones import fft_power_density
+
+samplerate = 50000
+medicion_fft = medicion[33000:49000,0]
+t = np.arange(0,medicion_fft.shape[0])/samplerate
+
+freq, psdx = fft_power_density(medicion_fft,samplerate)
+
+plt.semilogy(freq,psdx)
+
+plt.plot(t,medicion_fft)
+
+
 
 ##
 

@@ -173,3 +173,111 @@ parametros['nbr_buffers_plot'] = 2
 parametros['plot_rate_hz'] = 10
 
 pid_daqmx(parametros)
+
+
+#%%
+
+import matplotlib.pyplot as plt
+import numpy as np
+import numpy.fft as fft
+import os
+import matplotlib.pylab as pylab
+
+
+params = {'legend.fontsize': 14,
+          'figure.figsize': (14, 9),
+         'axes.labelsize': 24,
+         'axes.titlesize':18,
+         'font.size':18,
+         'xtick.labelsize':24,
+         'ytick.labelsize':24}
+pylab.rcParams.update(params)
+
+def load_from_np_file(filename):
+
+    f = open(filename, 'rb')
+    array = np.load(f)  
+    while True:
+        try:
+            array = np.append(array,np.load(f),axis=0)
+        except:
+            break
+    f.close()  
+
+    return array      
+
+
+carpeta_salida = 'PID2'
+samplerate = 50000
+
+duty_cycle = load_from_np_file(os.path.join(carpeta_salida, 'experimento4_duty_cycle.bin'))
+raw_data = load_from_np_file(os.path.join(carpeta_salida, 'experimento4_raw_data.bin'))
+mean_data = load_from_np_file(os.path.join(carpeta_salida, 'experimento4_mean_data.bin'))
+
+raw_data1 = raw_data[7000:8000,:,0]
+t1 = np.arange(0,raw_data1.shape[1])/samplerate
+
+fig = plt.figure(dpi=250)
+ax = fig.add_axes([.15, .15, .75, .8])
+ax.plot(t1*1000,np.transpose(raw_data1[0:200,:]))
+ax.grid(linestyle='--',linewidth=0.5)
+ax.grid(linestyle='--',linewidth=0.5)
+ax.set_xlabel('Tiempo [ms]')
+ax.set_ylabel('Tensión [V]')
+
+figname = os.path.join(carpeta_salida, 'experimento4_raw_data_duty_cycle_fijo.png')
+fig.savefig(figname, dpi=300)  
+plt.close(fig) 
+
+
+#plt.plot(np.transpose(raw_data1[:,:]))
+
+vector = raw_data1[:,80]
+bins = 300
+[hist_frec,hist_tension] = np.histogram(vector,range=(3.5,4.5),bins=bins)
+hist_tension = hist_tension[1:]
+
+ind = np.argmax(hist_frec)
+v_max = hist_tension[ind]
+ind_r = np.argmin(np.abs(hist_frec - hist_frec[ind]/2))
+v_ruido = np.abs(2*(hist_tension[ind] - hist_tension[ind_r]))  
+
+
+fig = plt.figure(dpi=250)
+ax = fig.add_axes([.15, .15, .75, .8])
+ax.bar(hist_tension,hist_frec,align='center',width=0.003,linewidth=0.1,edgecolor=(0.9,0.9,0.9))
+ax.set_xlim([3.8,4.3])
+ax.grid(linestyle='--',linewidth=0.5)
+ax.set_xlabel('Tensión [V]')
+ax.set_ylabel('Frecuencia')
+
+figname = os.path.join(carpeta_salida, 'experimento4_raw_data_ruido_duty_cycle_fijo.png')
+fig.savefig(figname, dpi=300)  
+plt.close(fig) 
+
+
+###
+
+vector = mean_data[7000:8000]
+#vector = np.mean(raw_data1,axis=1)
+bins = 400
+[hist_frec,hist_tension] = np.histogram(vector,range=(4.25,4.75),bins=bins)
+hist_tension = hist_tension[1:]
+
+ind = np.argmax(hist_frec)
+v_max = hist_tension[ind]
+ind_r = np.argmin(np.abs(hist_frec - hist_frec[ind]/2))
+v_ruido = np.abs(2*(hist_tension[ind] - hist_tension[ind_r]))  
+
+
+fig = plt.figure(dpi=250)
+ax = fig.add_axes([.15, .15, .75, .8])
+ax.bar(hist_tension,hist_frec,align='center',width=0.0011,linewidth=0.1,edgecolor=(0.9,0.9,0.9))
+ax.set_xlim([4.4,4.55])
+ax.grid(linestyle='--',linewidth=0.5)
+ax.set_xlabel('Tensión [V]')
+ax.set_ylabel('Frecuencia')
+
+figname = os.path.join(carpeta_salida, 'experimento4_mean_data_ruido_duty_cycle_fijo.png')
+fig.savefig(figname, dpi=300)  
+plt.close(fig) 
