@@ -15,9 +15,9 @@ from matplotlib.animation import FuncAnimation
 from matplotlib.widgets import Button, Slider, CheckButtons
 import os
 
-#import nidaqmx
-#import nidaqmx.constants as constants
-#import nidaqmx.stream_writers
+import nidaqmx
+import nidaqmx.constants as constants
+import nidaqmx.stream_writers
 
 class pid_daq(object):
 
@@ -655,38 +655,38 @@ class pid_daq(object):
     # Defino el thread que envia la señal          
     def writer_thread(self):  
         
-#        do_channles_str = self.do_channles_str
-#        initial_do_frequency = self.initial_do_frequency
-#        initial_do_duty_cycle = self.initial_duty_cycle
-#        
-#        with nidaqmx.Task() as task_do:
-#            
-#            task_do.co_channels.add_co_pulse_chan_freq(counter=do_channels_str,duty_cycle=initial_do_duty_cycle,freq=initial_do_frequency,units=nidaqmx.constants.FrequencyUnits.HZ)
-#            task_do.timing.cfg_implicit_timing(sample_mode=constants.AcquisitionType.CONTINUOUS)    
-#            digi_s = nidaqmx.stream_writers.CounterWriter(task_do.out_stream)
-#            task_do.start()
-#                       
-#            i = 0
-#            while not self.evento_salida.is_set():
-#                
-#                self.semaphore2.acquire()   
-#    
-#                digi_s.write_one_sample_pulse_frequency(frequency = initial_do_frequency, duty_cycle = self.output_buffer_duty_cycle[i])
-#                
-#                i = i+1
-#                i = i%buffer_chunks     
+        do_channels_str = self.do_channels_str
+        initial_do_frequency = self.initial_do_frequency
+        initial_do_duty_cycle = self.initial_duty_cycle
+        
+        with nidaqmx.Task() as task_do:
+            
+            task_do.co_channels.add_co_pulse_chan_freq(counter=do_channels_str,duty_cycle=initial_do_duty_cycle,freq=initial_do_frequency,units=nidaqmx.constants.FrequencyUnits.HZ)
+            task_do.timing.cfg_implicit_timing(sample_mode=constants.AcquisitionType.CONTINUOUS)    
+            digi_s = nidaqmx.stream_writers.CounterWriter(task_do.out_stream)
+            task_do.start()
+                       
+            i = 0
+            while not self.evento_salida.is_set():
+                
+                self.semaphore2.acquire()   
+    
+                digi_s.write_one_sample_pulse_frequency(frequency = initial_do_frequency, duty_cycle = self.output_buffer_duty_cycle[i])
+                
+                i = i+1
+                i = i%buffer_chunks     
 
         
                        
-        i = 0
-        while not self.evento_salida.is_set():
-            
-            self.semaphore2.acquire()   
-            #time.sleep(0.008)
-            #digi_s.write_one_sample_pulse_frequency(frequency = initial_do_frequency, duty_cycle = output_buffer_duty_cycle[i])
-            
-            i = i+1
-            i = i%buffer_chunks           
+#        i = 0
+#        while not self.evento_salida.is_set():
+#            
+#            self.semaphore2.acquire()   
+#            #time.sleep(0.008)
+#            #digi_s.write_one_sample_pulse_frequency(frequency = initial_do_frequency, duty_cycle = output_buffer_duty_cycle[i])
+#            
+#            i = i+1
+#            i = i%buffer_chunks           
 
 
                
@@ -698,47 +698,48 @@ class pid_daq(object):
         ai_samples= self.ai_samples
         ai_voltage_range = self.ai_voltage_range
                 
-#        with nidaqmx.Task() as task_ai:
-#            task_ai.ai_channels.add_ai_voltage_chan(ai_channels_str,max_val=ai_voltage_range, min_val=-ai_voltage_range.,terminal_config=constants.TerminalConfiguration.RSE)#, "Voltage")#,AIVoltageUnits.Volts)#,max_val=10., min_val=-10.)
-#            task_ai.timing.cfg_samp_clk_timing(ai_samplerate,samps_per_chan=ai_samples,sample_mode=constants.AcquisitionType.CONTINUOUS)
-#                
-#            i = 0
-#            while not self.evento_salida.is_set():
-#        
-#                medicion = task_ai.read(number_of_samples_per_channel=ai_samples)
-#                medicion = np.asarray(medicion)
-#                medicion = np.reshape(medicion,ai_nbr_channels*ai_samples,order='F')
-#                
-#                for j in range(ai_nbr_channels):
-#                    self.input_buffer[i,:,j] = medicion[j::ai_nbr_channels]  
-#                
-#                self.semaphore1.release() 
-#                self.semaphore3.release()
-#                
-#                i = i+1
-#                i = i%buffer_chunks                  
+        with nidaqmx.Task() as task_ai:
+            
+            task_ai.ai_channels.add_ai_voltage_chan(ai_channels_str,max_val=ai_voltage_range, min_val=-ai_voltage_range,terminal_config=constants.TerminalConfiguration.RSE) #, "Voltage")#,AIVoltageUnits.Volts)#,max_val=10., min_val=-10.)
+            task_ai.timing.cfg_samp_clk_timing(ai_samplerate,samps_per_chan=ai_samples,sample_mode=constants.AcquisitionType.CONTINUOUS)
+                
+            i = 0
+            while not self.evento_salida.is_set():
+        
+                medicion = task_ai.read(number_of_samples_per_channel=ai_samples)
+                medicion = np.asarray(medicion)
+                medicion = np.reshape(medicion,ai_nbr_channels*ai_samples,order='F')
+                
+                for j in range(ai_nbr_channels):
+                    self.input_buffer[i,:,j] = medicion[j::ai_nbr_channels]  
+                
+                self.semaphore1.release() 
+                self.semaphore3.release()
+                
+                i = i+1
+                i = i%buffer_chunks                  
 
-        i = 0
-        dt = self.ai_samples/self.ai_samplerate-0.0005
-        while not self.evento_salida.is_set():
-    
-            medicion = np.zeros([ai_nbr_channels,ai_samples])
-            #medicion[0,:] = np.arange(0,ai_samples)
-            tt = i*ai_samples/ai_samplerate + np.arange(ai_samples)/ai_samples/ai_samplerate
-            medicion[0,:] = 2.1 + 1.0*np.sin(2*np.pi*0.2*tt) + np.random.rand(ai_samples)
-            #medicion[1,:] = 1 + np.random.rand(ai_samples)
-            medicion = np.reshape(medicion,ai_nbr_channels*ai_samples,order='F')
-            
-            for j in range(ai_nbr_channels):
-                self.input_buffer[i,:,j] = medicion[j::ai_nbr_channels]  
-            
-            self.semaphore1.release() 
-            self.semaphore3.release()
-            
-            time.sleep(dt)
-            
-            i = i+1
-            i = i%buffer_chunks  
+#        i = 0
+#        dt = self.ai_samples/self.ai_samplerate-0.0005
+#        while not self.evento_salida.is_set():
+#    
+#            medicion = np.zeros([ai_nbr_channels,ai_samples])
+#            #medicion[0,:] = np.arange(0,ai_samples)
+#            tt = i*ai_samples/ai_samplerate + np.arange(ai_samples)/ai_samples/ai_samplerate
+#            medicion[0,:] = 2.1 + 1.0*np.sin(2*np.pi*0.2*tt) + np.random.rand(ai_samples)
+#            #medicion[1,:] = 1 + np.random.rand(ai_samples)
+#            medicion = np.reshape(medicion,ai_nbr_channels*ai_samples,order='F')
+#            
+#            for j in range(ai_nbr_channels):
+#                self.input_buffer[i,:,j] = medicion[j::ai_nbr_channels]  
+#            
+#            self.semaphore1.release() 
+#            self.semaphore3.release()
+#            
+#            time.sleep(dt)
+#            
+#            i = i+1
+#            i = i%buffer_chunks  
 
   
     # Thread del callback        
