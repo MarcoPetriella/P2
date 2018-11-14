@@ -2,9 +2,10 @@
 
 #define SERIAL_BUFFER_SIZE 2048
 #define in_chunks 20
-#define out_chunks 1000
-#define  samples_per_chunk 100
+#define out_chunks 10000
+#define samples_per_chunk 100
 #define chunk_save 100
+#define chunk_show 200
 
 long total_samples = in_chunks*samples_per_chunk;
 float buffer_in[in_chunks*samples_per_chunk];
@@ -17,13 +18,13 @@ int clock_pin_in = 4;
 int chunk_pin_in = 5;
 int process_pin_in = 6;
 
-int clock_pin_out = 39;
-int chunk_pin_out = 41;
-int process_pin_out = 37;
+int clock_pin_out = 37;
+int chunk_pin_out = 39;
+int process_pin_out = 41;
 
 int analog_read_pin = 0;
 
-float clock_frequency = 5000;
+float clock_frequency = 400000;
 int clock_ind = 0;
 float chunk_frequency = 0.;
 long chunk_ind = 0;
@@ -46,7 +47,7 @@ int isteps  = 200;
 
 
 
-int vali = 0;
+float vali = 0;
 
 
 void setup() {
@@ -70,15 +71,15 @@ void setup() {
   
   attachInterrupt(digitalPinToInterrupt(clock_pin_in), acq_callback, FALLING); 
   attachInterrupt(digitalPinToInterrupt(chunk_pin_in), chunk_callback, FALLING); 
-  //attachInterrupt(digitalPinToInterrupt(process_pin_in), process_callback, FALLING); 
+  attachInterrupt(digitalPinToInterrupt(process_pin_in), process_callback, FALLING); 
 
-  int divi = 200;
+  int divi = 100;
   clock_ind = round(84000000/divi/clock_frequency);
   clock_frequency = round(84000000/divi)/clock_ind;
   chunk_frequency = clock_frequency/samples_per_chunk;
   chunk_ind = round(84000000/divi/chunk_frequency);
   chunk_frequency = round(84000000/divi)/chunk_ind;
-  process_frequency = chunk_frequency;
+  process_frequency = clock_frequency/samples_per_chunk/chunk_show;
   process_ind = round(84000000/divi/process_frequency);
   process_frequency = round(84000000/divi)/process_ind;
 
@@ -91,7 +92,6 @@ void setup() {
   Serial.println(chunk_frequency);
   Serial.print("chunk_ind: ");
   Serial.println(chunk_ind);
-
 
   Serial.print("process_frequency: ");
   Serial.println(process_frequency);
@@ -108,17 +108,17 @@ void setup() {
   REG_PWM_ENA = REG_PWM_SR | B1111;
   REG_PWM_CLK = PWM_CLK_PREA(0) | PWM_CLK_DIVA(divi);    // Set the PWM clock rate to 2MHz (84MHz/42). Adjust DIVA for the resolution you are looking for                                                     
   
-  REG_PWM_CMR3 = PWM_CMR_CALG |PWM_CMR_CPRE_CLKA;      // The period is left aligned, clock source as CLKA on channel 2
-  REG_PWM_CPRD3 = chunk_ind;                             // Channel 2 : Set the PWM frequency 2MHz/(2 * CPRD) = F ; 1< CPRD < 2exp24  -1 ; here CPRD = 10 exp 6
-  REG_PWM_CDTY3 = round(chunk_ind*0.5); 
+  REG_PWM_CMR3 = PWM_CMR_CALG |PWM_CMR_CPRE_CLKA;      // The period is left aligned, clock source as CLKA on channel 2 - PIN41
+  REG_PWM_CPRD3 = process_ind;                             // Channel 2 : Set the PWM frequency 2MHz/(2 * CPRD) = F ; 1< CPRD < 2exp24  -1 ; here CPRD = 10 exp 6
+  REG_PWM_CDTY3 = round(process_ind*0.5); 
 
-  REG_PWM_CMR2 = PWM_CMR_CALG |PWM_CMR_CPRE_CLKA;      // The period is left aligned, clock source as CLKA on channel 2
-  REG_PWM_CPRD2 = clock_ind;                             // Channel 2 : Set the PWM frequency 2MHz/(2 * CPRD) = F ; 1< CPRD < 2exp24  -1 ; here CPRD = 10 exp 6
-  REG_PWM_CDTY2 = round(clock_ind*0.5); 
+  REG_PWM_CMR2 = PWM_CMR_CALG |PWM_CMR_CPRE_CLKA;      // The period is left aligned, clock source as CLKA on channel 2 - PIN39
+  REG_PWM_CPRD2 = chunk_ind;                             // Channel 2 : Set the PWM frequency 2MHz/(2 * CPRD) = F ; 1< CPRD < 2exp24  -1 ; here CPRD = 10 exp 6
+  REG_PWM_CDTY2 = round(chunk_ind*0.5); 
 
-  REG_PWM_CMR1 = PWM_CMR_CALG |PWM_CMR_CPRE_CLKA;      // The period is left aligned, clock source as CLKA on channel 2
-  REG_PWM_CPRD1 = process_ind;                             // Channel 2 : Set the PWM frequency 2MHz/(2 * CPRD) = F ; 1< CPRD < 2exp24  -1 ; here CPRD = 10 exp 6
-  REG_PWM_CDTY1 = round(process_ind*0.5); 
+  REG_PWM_CMR1 = PWM_CMR_CALG |PWM_CMR_CPRE_CLKA;      // The period is left aligned, clock source as CLKA on channel 2 - PIN37
+  REG_PWM_CPRD1 = clock_ind;                             // Channel 2 : Set the PWM frequency 2MHz/(2 * CPRD) = F ; 1< CPRD < 2exp24  -1 ; here CPRD = 10 exp 6
+  REG_PWM_CDTY1 = round(clock_ind*0.5); 
   
 
   for (k=0;k<total_samples;k++){
@@ -171,9 +171,9 @@ void acq_callback(){
 
 void chunk_callback(){
 
-  in_disponible[q] += 1;
+  in_disponible[m] += 1;
 
-  if (in_disponible[q] > 1){
+  if (in_disponible[m] > 1){
     Serial.println("Hay Overrun");
     }  
 
@@ -191,15 +191,23 @@ void chunk_callback(){
     jj = (n-isteps + out_chunks)%out_chunks;
   
     termino_i += (buffer_out[n] - buffer_out[jj]);
-    Serial.println(buffer_out[n]);
+   //Serial.println(buffer_out[n]);
 
 //    if (not n%chunk_save){
-//      byte* byteData = (byte*)(&buffer_out[n]);    // Casting to a byte pointer
-//      Serial.write(byteData, 4*chunk_save); 
+//      int i= 0;
+//      for (i=0;i<10-1;i++){
+//        Serial.print(buffer_out[jj+i]);      
+//        }
+//        Serial.println(buffer_out[jj+i]);       
+////      byte* byteData = (byte*)(&buffer_out[jj]);    // Casting to a byte pointer
+////      Serial.write(byteData, 4*chunk_save); 
 //    }
 
-    vali += 1;
-    analogWrite(DAC0, vali);   
+
+
+  vali += 1.;
+  analogWrite(DAC0, floor(vali));     
+
   
     n = n + 1;
     n = n%out_chunks;
@@ -207,18 +215,19 @@ void chunk_callback(){
     m = m + 1;
     m = m%in_chunks; 
 
-
-  in_disponible[q] -= 1;
-  q = q + 1;
-  q = q%in_chunks; 
+  in_disponible[m] -= 1;
 
 
-  
 }
 
 void process_callback(){
 
-   
+
+  Serial.println(buffer_out[q*chunk_show]);
+
+  
+  q = q + 1;
+  q = q%(out_chunks/chunk_show);    
 
    }
     

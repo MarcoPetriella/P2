@@ -665,13 +665,20 @@ class pid_daq(object):
             task_do.timing.cfg_implicit_timing(sample_mode=constants.AcquisitionType.CONTINUOUS)    
             digi_s = nidaqmx.stream_writers.CounterWriter(task_do.out_stream)
             task_do.start()
+
+            prev_duty_cycle = 0
+            act_duty_cycle = self.initial_do_duty_cycle
                        
             i = 0
             while not self.evento_salida.is_set():
-                
+                                
                 self.semaphore2.acquire()   
-    
-                digi_s.write_one_sample_pulse_frequency(frequency = initial_do_frequency, duty_cycle = self.output_buffer_duty_cycle[i])
+                
+                prev_duty_cycle = act_duty_cycle
+                act_duty_cycle = self.output_buffer_duty_cycle[i,0]
+                
+                if act_duty_cycle != prev_duty_cycle:    
+                    digi_s.write_one_sample_pulse_frequency(frequency = initial_do_frequency, duty_cycle = act_duty_cycle)
                 
                 i = i+1
                 i = i%buffer_chunks     
