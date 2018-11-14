@@ -657,7 +657,7 @@ class pid_daq(object):
         
         do_channels_str = self.do_channels_str
         initial_do_frequency = self.initial_do_frequency
-        initial_do_duty_cycle = self.initial_duty_cycle
+        initial_do_duty_cycle = self.initial_do_duty_cycle
         
         with nidaqmx.Task() as task_do:
             
@@ -1327,6 +1327,7 @@ def callback_pid(self,i):
     kd = self.output_buffer_pid_constants[i,3]
     isteps = int(self.output_buffer_pid_constants[i,4])
     output_buffer_error_data_i = self.output_buffer_error_data[i,0]
+    output_buffer_duty_cycle = self.output_buffer_duty_cycle[:,0]
     mean_data_i = self.output_buffer_mean_data[i,0]
     sample_period = self.sample_period
         
@@ -1346,6 +1347,10 @@ def callback_pid(self,i):
     termino_d = output_buffer_error_data_i - self.output_buffer_error_data[j]
     termino_d = termino_d*sample_period
     
+    #ar = np.arange(0,isteps)
+    #vec = np.exp(-ar)
+    #vec = vec[::-1]
+    
     # Termino integral (hay que optimizar esto)
     termino_i = 0
     if k >= i:
@@ -1354,7 +1359,7 @@ def callback_pid(self,i):
         termino_i = np.sum(self.output_buffer_error_data[k:i])
     termino_i = termino_i*sample_period
     
-    output_buffer_duty_cycle_i =  kp*termino_p + ki*termino_i + kd*termino_d
+    output_buffer_duty_cycle_i = kp*termino_p + ki*termino_i + kd*termino_d
     
     #time.sleep(0.01)
 
@@ -1375,7 +1380,7 @@ if not os.path.exists(carpeta_salida):
 # Variables 
 ai_channels = [4]
 buffer_chunks = 500
-ai_samples = 500
+ai_samples = 1000
 ai_samplerate = 50000
 do_channel = [0]
 initial_do_duty_cycle = 0.5
@@ -1385,7 +1390,7 @@ kp = 0.96
 ki = 22.98
 kd = 19.86
 isteps = 60
-path_data_save = os.path.join(carpeta_salida,'experimento')
+path_data_save = os.path.join(carpeta_salida,'experimento6')
 callback_pid_variables = {}
 
 
@@ -1412,13 +1417,13 @@ parametros['callback_pid'] = callback_pid
 parametros['callback_pid_variables'] = callback_pid_variables
 parametros['sub_chunk_save'] = 25
 parametros['sub_chunk_plot'] = 25
-parametros['nbr_buffers_plot'] = 10
+parametros['nbr_buffers_plot'] = 5
 parametros['plot_rate_hz'] = 10
 
 adquisicion = pid_daq(parametros)
 adquisicion.configura_adquisicion()
-adquisicion.define_limites_de_plots(ax1_range=[0,5],ax2_range=[0,2],ax3_range=[-5,5])
-adquisicion.define_limites_sliders(setpoint_range=[0,5],kp_range=[0,50],ki_range=[0,50],kd_range=[0,25])
+adquisicion.define_limites_de_plots(ax1_range=[4,5],ax2_range=[0,2],ax3_range=[-2,2])
+adquisicion.define_limites_sliders(setpoint_range=[4,5],kp_range=[0,2],ki_range=[0,50],kd_range=[0,50])
 adquisicion.define_semaforos_overrun(semaforo1_ovr = 5)
 adquisicion.start()        
         
