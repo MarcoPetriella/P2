@@ -469,7 +469,8 @@ def load_from_np_file(filename):
 
 
 
-array2 = load_from_np_file('PID3\experimento_raw_data.bin')
+duty = load_from_np_file('PID3\experimento_duty_cycle.bin')
+mean = load_from_np_file('PID3\experimento_mean_data.bin')
 
 #array = load_from_np_file('PID2\experimento1_pid_terminos.bin')
 
@@ -486,6 +487,11 @@ plt.ylim([0,5])
 plt.legend()
 
 plt.plot(array[210,:,0])
+
+
+plt.plot(duty)
+plt.plot(mean)
+
 
 #%%
 
