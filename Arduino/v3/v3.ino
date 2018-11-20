@@ -3,7 +3,7 @@
 #define SERIAL_BUFFER_SIZE 2048
 #define out_chunks 5000
 #define samples_per_chunk 100
-#define chunk_to_python 20
+#define chunk_to_python 10
 #define nbr_out_variables 11
 
 volatile float buffer_in[samples_per_chunk];
@@ -40,7 +40,7 @@ int chunk_pin_out = 37;
 int send_to_python_pin_out = 39;
 int analog_read_pin = 0;
 
-float clock_frequency = 160000;
+float clock_frequency = 40000;
 int clock_ind = 0;
 float chunk_frequency = 0.;
 long chunk_ind = 0;
@@ -51,6 +51,7 @@ int m = 0;
 int q = 0;
 float dummy = 0.;
 int vali = 0;
+int seti = 500;
 
 
 void setup() {
@@ -169,12 +170,18 @@ void acq_callback(){
   float ana = analogRead(analog_read_pin);
   buffer_in[k] = ana; 
 
+  if (not k){
+    seti += 10;
+    analogWrite(DAC1, seti);     
+    }
+
   k = k + 1;
   k = k%samples_per_chunk;
 
 }
 
 void chunk_callback(){
+ 
 
     int i = 0;
     int w = 0;
@@ -218,6 +225,9 @@ void chunk_callback(){
       }
     
     float control = kp*termino_p + ki*termino_i + kd*termino_d;
+    control = max(0,control);
+    control = min(pow(2,12)-100,control);
+    //analogWrite(DAC1, control);  
 
     // Guarda el vector de salida
     variables_buffer_out[0] = setpoint;

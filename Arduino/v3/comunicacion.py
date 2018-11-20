@@ -71,7 +71,7 @@ def recibe():
 def manda():   
 
     setpoint = 2000
-    kp = 0.1
+    kp = 0.77
     ki = 0.2
     kd = 0.3
     isteps = 20.   
@@ -105,7 +105,7 @@ def grafica():
             #data[0:-1] = data[1:]
             #data[data.shape[0]-1] = buffer_in_data[i,8]
             
-            data = np.append(data,buffer_in_data[j:jj,5])
+            data = np.append(data,buffer_in_data[j:jj,8])
             data = data[sub_chunk_plot:]
             
             line.set_ydata(data)  
@@ -121,7 +121,7 @@ data = np.zeros(buffer_in_data.shape[0])
 fig = plt.figure(figsize=(7,3.7),dpi=250)
 ax = fig.add_axes([.15, .15, .70, .70])  
 line, = ax.plot(data, '.')      
-ax.set_ylim([-200,200])
+ax.set_ylim([0,5000])
 
 t1 = threading.Thread(target=recibe, args=[])
 t2 = threading.Thread(target=manda, args=[])
@@ -141,6 +141,9 @@ arduino.close()
 
 plt.plot(np.diff(buffer_in_data[:,10]),'.')
 plt.ylim([0,100])
+
+plt.plot(np.diff(buffer_in_data[:,8]),'.')
+plt.ylim([0,300]) 
 
 plt.plot(buffer_in_data[:,0],'.')
 plt.ylim([0,5000])
