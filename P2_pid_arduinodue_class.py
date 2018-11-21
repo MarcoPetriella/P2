@@ -14,10 +14,8 @@ import numpy.fft as fft
 from matplotlib.animation import FuncAnimation
 from matplotlib.widgets import Button, Slider, CheckButtons
 import os
-
-import nidaqmx
-import nidaqmx.constants as constants
-import nidaqmx.stream_writers
+import serial
+import struct
 
 class pid_daq(object):
 
@@ -97,29 +95,21 @@ class pid_daq(object):
         self.evento_salida = threading.Event()
         
     def inicializa_variables(self):
-        self.buffer_chunks = parametros['buffer_chunks']   
-        self.ai_samples = parametros['ai_samples']
-        self.ai_samplerate = parametros['ai_samplerate']
-        self.ai_device = parametros['ai_device']
-        self.ai_channels = parametros['ai_channels']
-        self.ai_voltage_range = parametros['ai_voltage_range']
-        self.do_device = parametros['do_device']
-        self.do_channel = parametros['do_channel']
-        self.initial_do_duty_cycle = parametros['initial_do_duty_cycle']
-        self.initial_do_frequency = parametros['initial_do_frequency']        
+        self.buffer_chunks = parametros['buffer_chunks']
+        self.com_device = parametros['com_device']
         self.setpoint = parametros['setpoint']
-        self.save_raw_data = parametros['save_raw_data']
-        self.save_processed_data = parametros['save_processed_data']
-        self.show_plot = parametros['show_plot']
-        self.path_data_save = parametros['path_data_save']      
-        self.callback_pid = parametros['callback_pid']
-        self.callback_pid_variables = parametros['callback_pid_variables']           
+        self.initial_value = parametros['initial_value']
+        self.save_data = parametros['save_data']
+        self.path_data_save = parametros['path_data_save']  
         parametros_pid = parametros['pid_constants']
         self.kp = parametros_pid[0]
         self.ki = parametros_pid[1]
         self.kd = parametros_pid[2]
         self.isteps = parametros_pid[3]  
-        self.sample_period = self.ai_samples/self.ai_samplerate
+        self.dt = parametros['dt']
+        self.chunk_plot = parametros['chunk_plot']
+        
+        self.cantidad_variables = 12
         
         # Valores predeterminado
         self.pid_onoff_button = True
@@ -127,8 +117,8 @@ class pid_daq(object):
         self.plot_fontsize = 10
         self.default_fontsize = 6
 
-        self.setpoint_min = 0
-        self.setpoint_max = 5
+        self.setpoint_min = 0.550
+        self.setpoint_max = 2.750
         self.kp_min = 0
         self.kp_max = 10
         self.ki_min = 0
@@ -139,7 +129,7 @@ class pid_daq(object):
         self.ax1_lim_i = 0
         self.ax1_lim_f = 5
         self.ax2_lim_i = 0
-        self.ax2_lim_f = 1.2
+        self.ax2_lim_f = 3.3
         self.ax3_lim_i = -2
         self.ax3_lim_f = 2 
         
@@ -151,59 +141,29 @@ class pid_daq(object):
         self.semaforo4_ovr = buffer_chunks
         self.semaforo5_ovr = buffer_chunks
         
-        # Valores de la placa de adquisicion
-        self.max_duty_cycle = 0.999
-        self.min_duty_cycle = 0.001  
                      
         
     def acondiciona_variables(self):
         # Archivos de salida
-        self.path_raw_data = self.path_data_save + '_raw_data.bin'
-        self.path_duty_cycle_data = self.path_data_save + '_duty_cycle.bin'
-        self.path_mean_data = self.path_data_save + '_mean_data.bin'
-        self.path_pid_constants = self.path_data_save + '_pid_constants.bin'
-        self.path_pid_terminos = self.path_data_save + '_pid_terminos.bin'
-        self.path_semaforos = self.path_data_save + '_semaforos.bin'
+        self.path_processed_data_save = self.path_data_save + '_valores.bin'
         self.path_timestamp = self.path_data_save + '_timestamp.txt'
         self.path_parametros = self.path_data_save + '_parametros_iniciales.txt'
         
-        if self.save_raw_data:
-            if os.path.exists(self.path_raw_data):
-                os.remove(self.path_raw_data)
+        if self.path_processed_data_save:
+            if os.path.exists(self.path_processed_data_save):
+                os.remove(self.path_processed_data_save)
                 
-        if self.save_processed_data:
-            if os.path.exists(self.path_duty_cycle_data):
-                os.remove(self.path_duty_cycle_data)
-        
-            if os.path.exists(self.path_mean_data):
-                os.remove(self.path_mean_data)        
-    
-            if os.path.exists(self.path_pid_constants):
-                os.remove(self.path_pid_constants)    
-    
-            if os.path.exists(self.path_pid_terminos):
-                os.remove(self.path_pid_terminos)           
-
-            if os.path.exists(self.path_semaforos):
-                os.remove(self.path_semaforos)  
-
+        if self.path_timestamp:
             if os.path.exists(self.path_timestamp):
-                os.remove(self.path_timestamp)  
+                os.remove(self.path_timestamp)
                 
+        if self.path_parametros:
             if os.path.exists(self.path_parametros):
-                os.remove(self.path_parametros)  
+                os.remove(self.path_parametros)                
         
         parametros = self.parametros
         buffer_chunks = self.buffer_chunks
-        ai_samplerate = self.ai_samplerate
-        ai_samples = self.ai_samples
-        initial_do_frequency = self.initial_do_frequency
-        ai_device = self.ai_device
-        ai_channels = self.ai_channels
-        do_device = self.do_device
-        do_channel = self.do_channel
         sub_chunk_save = np.NaN
-        sub_chunk_plot = np.NaN
         initialize_errors = []
         warnings = []
         
@@ -223,36 +183,8 @@ class pid_daq(object):
                 initialize_errors.append('No se encuentra sub_chunk_save tal que buffer_chunks sea multiplo')   
         sub_chunk_save = int(sub_chunk_save)  
             
-        if 'sub_chunk_plot' in parametros:    
-            sub_chunk_plot = parametros['sub_chunk_plot'] 
-            if buffer_chunks%sub_chunk_plot != 0:
-                initialize_errors.append('buffer_chunks debe ser multiplo de sub_chunk_plot')    
-        else:
-            i = 20
-            while i > 1:
-                sub_chunk_plot = buffer_chunks/i
-                if buffer_chunks%i == 0:
-                    break
-                i = i - 1
-            if i == 1:
-                initialize_errors.append('No se encuentra sub_chunk_plot tal que buffer_chunks sea multiplo')     
-        
-        if 'plot_rate_hz' in parametros:
-            plot_rate_hz = parametros['plot_rate_hz']
-            sub_chunk_plot = ai_samplerate/ai_samples/plot_rate_hz
-            if buffer_chunks%sub_chunk_plot != 0 or sub_chunk_plot != int(sub_chunk_plot):
-                warnings.append('El plot_rate_hz indicado no es posible, se busca el más cercano')
-                sub_chunk_plot = int(sub_chunk_plot*1.5)
-                while sub_chunk_plot > 1:
-                    if buffer_chunks%sub_chunk_plot == 0:
-                        break
-                    sub_chunk_plot = int(sub_chunk_plot-1)
-                if sub_chunk_plot == 1:
-                    initialize_errors.append('No se encuentra sub_chunk_plot tal que buffer_chunks sea multiplo')  
-        sub_chunk_plot = int(sub_chunk_plot)
-        
-        if (ai_samples/ai_samplerate)%(1/initial_do_frequency) != 0.:
-            warnings.append(warning_string = 'La cantidad de ciclos del PWM no es entera!')
+
+
     
         # pasos de la integral del pid
         paso_integral = 10
@@ -265,72 +197,24 @@ class pid_daq(object):
         else:
             nbr_buffers_plot = 10
             
-        # ai string
-        ai_channels_str = ''
-        ai_nbr_channels = 0
-        if len(ai_channels) == 2:
-            ai_channels_str = str(ai_channels[0]) + ':' + str(ai_channels[1])
-            ai_nbr_channels = ai_channels[1] - ai_channels[0] + 1
-        elif len(ai_channels) == 1:
-            ai_channels_str = str(ai_channels[0])
-            ai_nbr_channels = 1
-        else:
-            initialize_errors.append('El formato de los canales no está bien especificado')  
-            
-        ai_channels_str = ai_device + ai_channels_str
-    
-        # do string
-        do_channels_str = do_device + str(do_channel[0])    
-        if len(do_channel) > 1:
-            initialize_errors.append('Por ahora solo está habilitado un solo canal digital')   
-       
         
         self.sub_chunk_save = sub_chunk_save
-        self.sub_chunk_plot = sub_chunk_plot
         self.possible_isteps = possible_isteps
         self.nbr_buffers_plot = nbr_buffers_plot
-        self.ai_channels_str = ai_channels_str
-        self.ai_nbr_channels = ai_nbr_channels
-        self.do_channels_str = do_channels_str
         self.initialize_errors = initialize_errors
         self.warnings = warnings
 
     def inicializa_buffers(self):
     
         buffer_chunks = self.buffer_chunks
-        ai_samples = self.ai_samples
-        ai_nbr_channels = self.ai_nbr_channels
-        initial_do_duty_cycle = self.initial_do_duty_cycle
-        setpoint = self.setpoint
-        kp = self.kp
-        ki = self.ki
-        kd = self.kd
-        isteps = self.isteps  
-        
-        input_buffer = np.zeros([buffer_chunks,ai_samples,ai_nbr_channels])
-        output_buffer_mean_data = np.zeros([buffer_chunks,ai_nbr_channels])
-        output_buffer_duty_cycle = np.ones([buffer_chunks,1])*initial_do_duty_cycle
-        output_buffer_error_data = np.zeros([buffer_chunks,1])
-        output_buffer_pid_constants = np.ones([buffer_chunks,5]) 
-        output_buffer_pid_constants[:,0] = output_buffer_pid_constants[:,0]*setpoint
-        output_buffer_pid_constants[:,1] = output_buffer_pid_constants[:,1]*kp
-        output_buffer_pid_constants[:,2] = output_buffer_pid_constants[:,2]*ki
-        output_buffer_pid_constants[:,3] = output_buffer_pid_constants[:,3]*kd
-        output_buffer_pid_constants[:,4] = output_buffer_pid_constants[:,4]*isteps
-        output_buffer_pid_terminos = np.zeros([buffer_chunks,3])      
-        output_buffer_semaforos = np.zeros([buffer_chunks,5])   
-        output_buffer_timestamp = []
-        for i in range(buffer_chunks):
-            output_buffer_timestamp.append(0)
+        cantidad_variables = self.cantidad_variables
+         
+        input_buffer = np.zeros([buffer_chunks,cantidad_variables],dtype=np.float)
+        input_buffer_timestamp = buffer_chunks*[None]
         
         self.input_buffer = input_buffer
-        self.output_buffer_mean_data = output_buffer_mean_data
-        self.output_buffer_duty_cycle = output_buffer_duty_cycle
-        self.output_buffer_error_data = output_buffer_error_data
-        self.output_buffer_pid_constants = output_buffer_pid_constants
-        self.output_buffer_pid_terminos = output_buffer_pid_terminos
-        self.output_buffer_semaforos = output_buffer_semaforos
-        self.output_buffer_timestamp = output_buffer_timestamp
+        self.input_buffer_timestamp = input_buffer_timestamp
+
 
  
     def inicializa_interfaz(self):
@@ -347,25 +231,20 @@ class pid_daq(object):
         
         buffer_chunks = self.buffer_chunks
         nbr_buffers_plot = self.nbr_buffers_plot
-        ai_nbr_channels = self.ai_nbr_channels
-        ai_samples = self.ai_samples
-        ai_samplerate = self.ai_samplerate
+        chunk_plot = self.chunk_plot
+        dt = self.dt
+        
         setpoint = self.setpoint
         kp =self.kp
         ki = self.ki
         kd = self.kd
         isteps = self.isteps        
-        initial_do_frequency = self.initial_do_frequency
-        sub_chunk_plot = self.sub_chunk_plot
-        save_raw_data = self.save_raw_data
-        save_processed_data = self.save_processed_data
-        
-        data_plot1 = np.zeros([buffer_chunks*nbr_buffers_plot,ai_nbr_channels])
+
+        data_plot1 = np.zeros([buffer_chunks*nbr_buffers_plot,2])
         data_plot2 = np.zeros([buffer_chunks*nbr_buffers_plot,1])    
         data_plot3 = np.zeros([buffer_chunks*nbr_buffers_plot,3])  
         
-        tiempo_vec = np.arange(0,data_plot1.shape[0])/data_plot1.shape[0]
-        tiempo_vec = tiempo_vec*(ai_samples*buffer_chunks*nbr_buffers_plot/ai_samplerate)
+        tiempo_vec = np.arange(0,data_plot1.shape[0])*chunk_plot*dt
         now = datetime.datetime.now()
         now = now.strftime("%Y-%m-%d %H:%M:%S")
       
@@ -389,7 +268,7 @@ class pid_daq(object):
             line, = ax2.plot(tiempo_vec,data_plot2[:,i], '-',color='red')  
             line2.append(line)
         ax2.set_ylim([ax2_lim_i,ax2_lim_f])
-        ax2.set_ylabel('duty cycle',fontsize = plot_fontsize)
+        ax2.set_ylabel('control [V]',fontsize = plot_fontsize)
         ax2.xaxis.set_tick_params(labelsize=plot_fontsize)
         ax2.yaxis.set_tick_params(labelsize=plot_fontsize)  
         
@@ -416,40 +295,41 @@ class pid_daq(object):
         xi = 0.68
         yi = 0.65
         dyi = 0.10
-        ax4.text(xi,yi,'Pending processes',fontsize=default_fontsize,va='center',transform = ax4.transAxes)
-        ax4.text(xi,yi - 1*dyi,'Input buffer filling: ',fontsize=default_fontsize,va='center',transform = ax4.transAxes)
-        ax4.text(xi,yi - 2*dyi,'Output buffer emptying:',fontsize=default_fontsize,va='center',transform = ax4.transAxes)
-        ax4.text(xi,yi - 3*dyi,'Raw data writer:',fontsize=default_fontsize,va='center',transform = ax4.transAxes)
-        ax4.text(xi,yi - 4*dyi,'Processed data writer:',fontsize=default_fontsize,va='center',transform = ax4.transAxes)
-        ax4.text(xi,yi - 5*dyi,'Plotting:',fontsize=default_fontsize,va='center',transform = ax4.transAxes)
-        ax4.text(xi,yi - 6*dyi,'Measuring acquiring ratio:',fontsize=default_fontsize,va='center',transform = ax4.transAxes)
         
-        xi = 1.53
-        monitoring_txt0 = ax4.text(xi,yi - 1*dyi,str(0) + '%',fontsize=default_fontsize,va='center',ha='right',transform = ax4.transAxes)
-        monitoring_txt1 = ax4.text(xi,yi - 2*dyi,str(0) + '%',fontsize=default_fontsize,va='center',ha='right',transform = ax4.transAxes)
-        monitoring_txt2 = ax4.text(xi,yi - 3*dyi,str(0) + '%',fontsize=default_fontsize,va='center',ha='right',transform = ax4.transAxes)
-        monitoring_txt3 = ax4.text(xi,yi - 4*dyi,str(0) + '%',fontsize=default_fontsize,va='center',ha='right',transform = ax4.transAxes)
-        monitoring_txt4 = ax4.text(xi,yi - 5*dyi,str(0) + '%',fontsize=default_fontsize,va='center',ha='right',transform = ax4.transAxes)
-        monitoring_txt5 = ax4.text(xi,yi - 6*dyi,str(0) + '%',fontsize=default_fontsize,va='center',ha='right',transform = ax4.transAxes)
-        
-        xi = -0.40
-        ax4.text(xi,yi,'Acquisition parameters',fontsize=default_fontsize,va='center',transform = ax4.transAxes)
-        ax4.text(xi,yi - 1*dyi,'Samplerate: ',fontsize=default_fontsize,va='center',transform = ax4.transAxes)
-        ax4.text(xi,yi - 2*dyi,'Samples per chunk:',fontsize=default_fontsize,va='center',transform = ax4.transAxes)
-        ax4.text(xi,yi - 3*dyi,'Nbr. chunks:',fontsize=default_fontsize,va='center',transform = ax4.transAxes)
-        ax4.text(xi,yi - 4*dyi,'PWM frequency:',fontsize=default_fontsize,va='center',transform = ax4.transAxes)
-        ax4.text(xi,yi - 5*dyi,'Nbr. PWM cycles per chunk:',fontsize=default_fontsize,va='center',transform = ax4.transAxes)
-        ax4.text(xi,yi - 6*dyi,'Save raw / processed data:',fontsize=default_fontsize,va='center',transform = ax4.transAxes)
-        ax4.text(xi,yi - 7*dyi,'Display plot chunks / rate:',fontsize=default_fontsize,va='center',transform = ax4.transAxes)
-        
-        xi = 0.55
-        ax4.text(xi,yi - 1*dyi,'%6.2f' % (ai_samplerate/1000.0) + ' kHz',fontsize=default_fontsize,va='center',ha='right',transform = ax4.transAxes)
-        ax4.text(xi,yi - 2*dyi,'%4d' % ai_samples + ' / ' + '%6.2f' % (ai_samples/ai_samplerate*1000.) + ' ms',fontsize=default_fontsize,va='center',ha='right',transform = ax4.transAxes)
-        ax4.text(xi,yi - 3*dyi,'%4d' % buffer_chunks + ' / ' + '%6.2f' % (buffer_chunks*ai_samples/ai_samplerate) + ' s',fontsize=default_fontsize,va='center',ha='right',transform = ax4.transAxes)
-        ax4.text(xi,yi - 4*dyi,'%6.2f' % (initial_do_frequency/1000.) + ' kHz',fontsize=default_fontsize,va='center',ha='right',transform = ax4.transAxes)
-        ax4.text(xi,yi - 5*dyi,'%6.2f' % ((ai_samples/ai_samplerate)*(initial_do_frequency)) ,fontsize=default_fontsize,va='center',ha='right',transform = ax4.transAxes)
-        ax4.text(xi,yi - 6*dyi, str(save_raw_data) + ' / ' + str(save_processed_data),fontsize=default_fontsize,va='center',ha='right',transform = ax4.transAxes)
-        ax4.text(xi,yi - 7*dyi, '%4d' % sub_chunk_plot + ' / ' +'%6.2f' % (ai_samplerate/ai_samples/sub_chunk_plot) + ' Hz',fontsize=default_fontsize,va='center',ha='right',transform = ax4.transAxes)
+#        ax4.text(xi,yi,'Pending processes',fontsize=default_fontsize,va='center',transform = ax4.transAxes)
+#        ax4.text(xi,yi - 1*dyi,'Input buffer filling: ',fontsize=default_fontsize,va='center',transform = ax4.transAxes)
+#        ax4.text(xi,yi - 2*dyi,'Output buffer emptying:',fontsize=default_fontsize,va='center',transform = ax4.transAxes)
+#        ax4.text(xi,yi - 3*dyi,'Raw data writer:',fontsize=default_fontsize,va='center',transform = ax4.transAxes)
+#        ax4.text(xi,yi - 4*dyi,'Processed data writer:',fontsize=default_fontsize,va='center',transform = ax4.transAxes)
+#        ax4.text(xi,yi - 5*dyi,'Plotting:',fontsize=default_fontsize,va='center',transform = ax4.transAxes)
+#        ax4.text(xi,yi - 6*dyi,'Measuring acquiring ratio:',fontsize=default_fontsize,va='center',transform = ax4.transAxes)
+#        
+#        xi = 1.53
+#        monitoring_txt0 = ax4.text(xi,yi - 1*dyi,str(0) + '%',fontsize=default_fontsize,va='center',ha='right',transform = ax4.transAxes)
+#        monitoring_txt1 = ax4.text(xi,yi - 2*dyi,str(0) + '%',fontsize=default_fontsize,va='center',ha='right',transform = ax4.transAxes)
+#        monitoring_txt2 = ax4.text(xi,yi - 3*dyi,str(0) + '%',fontsize=default_fontsize,va='center',ha='right',transform = ax4.transAxes)
+#        monitoring_txt3 = ax4.text(xi,yi - 4*dyi,str(0) + '%',fontsize=default_fontsize,va='center',ha='right',transform = ax4.transAxes)
+#        monitoring_txt4 = ax4.text(xi,yi - 5*dyi,str(0) + '%',fontsize=default_fontsize,va='center',ha='right',transform = ax4.transAxes)
+#        monitoring_txt5 = ax4.text(xi,yi - 6*dyi,str(0) + '%',fontsize=default_fontsize,va='center',ha='right',transform = ax4.transAxes)
+#        
+#        xi = -0.40
+#        ax4.text(xi,yi,'Acquisition parameters',fontsize=default_fontsize,va='center',transform = ax4.transAxes)
+#        ax4.text(xi,yi - 1*dyi,'Samplerate: ',fontsize=default_fontsize,va='center',transform = ax4.transAxes)
+#        ax4.text(xi,yi - 2*dyi,'Samples per chunk:',fontsize=default_fontsize,va='center',transform = ax4.transAxes)
+#        ax4.text(xi,yi - 3*dyi,'Nbr. chunks:',fontsize=default_fontsize,va='center',transform = ax4.transAxes)
+#        ax4.text(xi,yi - 4*dyi,'PWM frequency:',fontsize=default_fontsize,va='center',transform = ax4.transAxes)
+#        ax4.text(xi,yi - 5*dyi,'Nbr. PWM cycles per chunk:',fontsize=default_fontsize,va='center',transform = ax4.transAxes)
+#        ax4.text(xi,yi - 6*dyi,'Save raw / processed data:',fontsize=default_fontsize,va='center',transform = ax4.transAxes)
+#        ax4.text(xi,yi - 7*dyi,'Display plot chunks / rate:',fontsize=default_fontsize,va='center',transform = ax4.transAxes)
+#        
+#        xi = 0.55
+#        ax4.text(xi,yi - 1*dyi,'%6.2f' % (ai_samplerate/1000.0) + ' kHz',fontsize=default_fontsize,va='center',ha='right',transform = ax4.transAxes)
+#        ax4.text(xi,yi - 2*dyi,'%4d' % ai_samples + ' / ' + '%6.2f' % (ai_samples/ai_samplerate*1000.) + ' ms',fontsize=default_fontsize,va='center',ha='right',transform = ax4.transAxes)
+#        ax4.text(xi,yi - 3*dyi,'%4d' % buffer_chunks + ' / ' + '%6.2f' % (buffer_chunks*ai_samples/ai_samplerate) + ' s',fontsize=default_fontsize,va='center',ha='right',transform = ax4.transAxes)
+#        ax4.text(xi,yi - 4*dyi,'%6.2f' % (initial_do_frequency/1000.) + ' kHz',fontsize=default_fontsize,va='center',ha='right',transform = ax4.transAxes)
+#        ax4.text(xi,yi - 5*dyi,'%6.2f' % ((ai_samples/ai_samplerate)*(initial_do_frequency)) ,fontsize=default_fontsize,va='center',ha='right',transform = ax4.transAxes)
+#        ax4.text(xi,yi - 6*dyi, str(save_raw_data) + ' / ' + str(save_processed_data),fontsize=default_fontsize,va='center',ha='right',transform = ax4.transAxes)
+#        ax4.text(xi,yi - 7*dyi, '%4d' % sub_chunk_plot + ' / ' +'%6.2f' % (ai_samplerate/ai_samples/sub_chunk_plot) + ' Hz',fontsize=default_fontsize,va='center',ha='right',transform = ax4.transAxes)
     
         xi = 2.35
         txt_pid_parameters = []
@@ -483,12 +363,6 @@ class pid_daq(object):
         self.setpoint_line = setpoint_line
         self.txt_now = txt_now
         self.txt_pid_parameters = txt_pid_parameters
-        self.monitoring_txt0 = monitoring_txt0
-        self.monitoring_txt1 = monitoring_txt1
-        self.monitoring_txt2 = monitoring_txt2
-        self.monitoring_txt3 = monitoring_txt3
-        self.monitoring_txt4 = monitoring_txt4
-        self.monitoring_txt5 = monitoring_txt5
         self.pid_para_txt0 = pid_para_txt0
         self.pid_para_txt1 = pid_para_txt1
         self.pid_para_txt2 = pid_para_txt2
@@ -645,186 +519,84 @@ class pid_daq(object):
              
 
     def inicializa_semaforos(self):
-        self.semaphore1 = threading.Semaphore(0) # Input buffer
-        self.semaphore2 = threading.Semaphore(0) # Output buffer
-        self.semaphore3 = threading.Semaphore(0) # Guardado de raw data
-        self.semaphore4 = threading.Semaphore(0) # Guardado de processed data
-        self.semaphore5 = threading.Semaphore(0) # Plot
+        self.semaphore1 = threading.Semaphore(0) # plot
+        self.semaphore2 = threading.Semaphore(0) # guardado
         
-
-    # Defino el thread que envia la señal          
-    def writer_thread(self):  
         
-        do_channels_str = self.do_channels_str
-        initial_do_frequency = self.initial_do_frequency
-        initial_do_duty_cycle = self.initial_do_duty_cycle
-        
-        with nidaqmx.Task() as task_do:
-            
-            task_do.co_channels.add_co_pulse_chan_freq(counter=do_channels_str,duty_cycle=initial_do_duty_cycle,freq=initial_do_frequency,units=nidaqmx.constants.FrequencyUnits.HZ)
-            task_do.timing.cfg_implicit_timing(sample_mode=constants.AcquisitionType.CONTINUOUS)    
-            digi_s = nidaqmx.stream_writers.CounterWriter(task_do.out_stream)
-            task_do.start()
-
-            prev_duty_cycle = 0
-            act_duty_cycle = self.initial_do_duty_cycle
-                       
-            i = 0
-            while not self.evento_salida.is_set():
-                                
-                self.semaphore2.acquire()   
-                
-                prev_duty_cycle = act_duty_cycle
-                act_duty_cycle = self.output_buffer_duty_cycle[i,0]
-                
-                if act_duty_cycle != prev_duty_cycle:    
-                    digi_s.write_one_sample_pulse_frequency(frequency = initial_do_frequency, duty_cycle = act_duty_cycle)
-                
-                i = i+1
-                i = i%buffer_chunks     
-
+    def inicializa_arduino(self):
+        self.arduino = serial.Serial('COM'+str(self.com_device), 2*9600, timeout=0.5)
+        self.arduino.set_buffer_size(rx_size = 8*1000, tx_size = 8*1000)
         
                        
-#        i = 0
-#        while not self.evento_salida.is_set():
-#            
-#            self.semaphore2.acquire()   
-#            #time.sleep(0.008)
-#            #digi_s.write_one_sample_pulse_frequency(frequency = initial_do_frequency, duty_cycle = output_buffer_duty_cycle[i])
-#            
-#            i = i+1
-#            i = i%buffer_chunks           
-
-
-               
-    # Defino el thread que adquiere la señal   
-    def reader_thread(self):
+    def recibe(self):
         
-        ai_channels_str = self.ai_channels_str
-        ai_nbr_channels =  self.ai_nbr_channels
-        ai_samples= self.ai_samples
-        ai_voltage_range = self.ai_voltage_range
-                
-        with nidaqmx.Task() as task_ai:
-            
-            task_ai.ai_channels.add_ai_voltage_chan(ai_channels_str,max_val=ai_voltage_range, min_val=-ai_voltage_range,terminal_config=constants.TerminalConfiguration.RSE) #, "Voltage")#,AIVoltageUnits.Volts)#,max_val=10., min_val=-10.)
-            task_ai.timing.cfg_samp_clk_timing(ai_samplerate,samps_per_chan=ai_samples,sample_mode=constants.AcquisitionType.CONTINUOUS)
-                
-            i = 0
-            while not self.evento_salida.is_set():
+        cantidad_variables = self.cantidad_variables
+        buffer_chunks = self.buffer_chunks
         
-                medicion = task_ai.read(number_of_samples_per_channel=ai_samples)
-                medicion = np.asarray(medicion)
-                medicion = np.reshape(medicion,ai_nbr_channels*ai_samples,order='F')
-                
-                for j in range(ai_nbr_channels):
-                    self.input_buffer[i,:,j] = medicion[j::ai_nbr_channels]  
-                
-                self.semaphore1.release() 
-                self.semaphore3.release()
-                
-                i = i+1
-                i = i%buffer_chunks                  
-
-#        i = 0
-#        dt = self.ai_samples/self.ai_samplerate-0.0005
-#        while not self.evento_salida.is_set():
-#    
-#            medicion = np.zeros([ai_nbr_channels,ai_samples])
-#            #medicion[0,:] = np.arange(0,ai_samples)
-#            tt = i*ai_samples/ai_samplerate + np.arange(ai_samples)/ai_samples/ai_samplerate
-#            medicion[0,:] = 2.1 + 1.0*np.sin(2*np.pi*0.2*tt) + np.random.rand(ai_samples)
-#            #medicion[1,:] = 1 + np.random.rand(ai_samples)
-#            medicion = np.reshape(medicion,ai_nbr_channels*ai_samples,order='F')
-#            
-#            for j in range(ai_nbr_channels):
-#                self.input_buffer[i,:,j] = medicion[j::ai_nbr_channels]  
-#            
-#            self.semaphore1.release() 
-#            self.semaphore3.release()
-#            
-#            time.sleep(dt)
-#            
-#            i = i+1
-#            i = i%buffer_chunks  
-
-  
-    # Thread del callback        
-    def callback_thread(self):
-        
-        semaforo1_ovr = self.semaforo1_ovr
-        semaforo2_ovr = self.semaforo2_ovr
-                
         i = 0
-        while not self.evento_salida.is_set(): 
+        while not self.evento_salida.is_set():  
             
+            try:            
+                rawString = self.arduino.read(4*cantidad_variables)
+                array_serial = struct.unpack(cantidad_variables*'f',rawString)
+                                
+                now = datetime.datetime.now()
+                now = now.strftime("%Y-%m-%d %H:%M:%S.%f")  
+                
+                
+                if len(array_serial) == cantidad_variables:
+                    self.input_buffer[i,:] = array_serial
+                    self.input_buffer_timestamp[i] = now
+                    i = i+1
+                    i = i%buffer_chunks
+                    self.semaphore1.release()
+                    self.semaphore2.release()
+                    print(array_serial)
+                
+            except:
+                print("Error en la lectura")
+            
+            while self.arduino.inWaiting() > 200:
+                print('Limpiando buffer')
+                self.arduino.read(4)
+                    
 
-            if self.semaphore1._value > semaforo1_ovr:
-                error_string = 'Hay overrun en llenado del input_buffer!'
-                self.exit_callback1(error_string)        
-                            
-            if self.semaphore2._value > semaforo2_ovr:
-                error_string = 'Hay overrun en el vaciado del output_buffer!'
-                self.exit_callback1(error_string)            
-            
-            self.semaphore1.acquire() 
-            now = datetime.datetime.now()
-            now = now.strftime("%Y-%m-%d %H:%M:%S.%f")
-            
-#            # Paso anterior del buffer circular
-#            j = (i-1)%buffer_chunks
-    
-            ## Inicio Callback      
-            self.output_buffer_mean_data[i,:] = np.mean(self.input_buffer[i,:,:],axis=0)
-            self.output_buffer_error_data[i,0] = self.output_buffer_mean_data[i,0] - self.setpoint              
-            self.output_buffer_pid_constants[i,:] = np.array([self.setpoint,self.kp,self.ki,self.kd,self.isteps])
-         
-            # funcion de callback
-            output_buffer_duty_cycle_i, output_buffer_error_data_i, termino_p, termino_i, termino_d, setpoint, kp, ki, kd, isteps  = self.callback_pid(self,i)             
-            
-            # Actualizo los buffers luego del callback
-            if self.pid_onoff_button is False:
-                output_buffer_duty_cycle_i = initial_do_duty_cycle
+    def manda(self):   
+     
+        
+        while not self.evento_salida.is_set():     
+            time.sleep(2)
+            try:               
+                self.arduino.write(struct.pack('<fffff',self.setpoint,self.kp,self.ki,self.kd,self.isteps)) 
+            except:
+                print("Error en el envio")
 
-            self.output_buffer_duty_cycle[i,0] = output_buffer_duty_cycle_i       
-            self.output_buffer_pid_terminos[i,:] = np.array([termino_p, termino_i, termino_d])            
-            self.output_buffer_pid_constants[i,:] = np.array([setpoint,kp,ki,kd,isteps])    
-            self.output_buffer_error_data[i,0] = output_buffer_error_data_i  
-            self.output_buffer_semaforos[i,:] = np.array([self.semaphore1._value, self.semaphore2._value, self.semaphore3._value, self.semaphore4._value, self.semaphore5._value])
-            self.output_buffer_timestamp[i] = now
-            ## Fin callback
-            
-            self.semaphore2.release()
-            self.semaphore4.release()
-            self.semaphore5.release()                                
-           
-            i = i+1
-            i = i%buffer_chunks   
-       
 
-    def data_writer1_thread(self):
+    def guarda(self):
              
-        save_raw_data = self.save_raw_data
+
         sub_chunk_save = self.sub_chunk_save
         buffer_chunks = self.buffer_chunks
-        path_raw_data= self.path_raw_data
-        semaforo3_ovr = self.semaforo3_ovr
+
+        
+        path_processed_data_save = self.path_processed_data_save
+        path_timestamp =  self.path_timestamp
         
         i = 0
         
-        if not save_raw_data:
+        if not self.save_data:
             while not self.evento_salida.is_set():  
-                self.semaphore3.acquire() 
+                self.semaphore2.acquire() 
                 
         else:
                         
             while not self.evento_salida.is_set():  
     
-                if self.semaphore3._value > semaforo3_ovr:
+                if self.semaphore2._value > buffer_chunks:
                     error_string = 'Hay overrun en la escritura de datos raw data!'
                     self.exit_callback1(error_string)               
                 
-                self.semaphore3.acquire() 
+                self.semaphore2.acquire() 
                 
                 if not i%sub_chunk_save: 
                     
@@ -832,108 +604,28 @@ class pid_daq(object):
                     jj = (j+sub_chunk_save-1)%buffer_chunks + 1
                     
                     try:
-                        self.save_to_np_file(path_raw_data,self.input_buffer[j:jj,:,:]) 
+                        self.save_to_np_file(path_processed_data_save,self.input_buffer[j:jj,:]) 
                     except:
                         warning_string = 'Error: No se guarda raw data'
                         self.warning_callback(warning_string)
+                        
+                        
+                    try:
+                        self.save_to_txt_file(path_timestamp, self.input_buffer_timestamp[j:jj]) 
+                    except:
+                        warning_string = 'Error: No se guardan los timestamp'
+                        self.warning_callback(warning_string)                         
+                        
                
                 i = i+1
                 i = i%buffer_chunks   
 
-            
-    def data_writer2_thread(self):
+                       
         
-        save_processed_data= self.save_processed_data
+    
+    def plotea(self):
+        
         buffer_chunks = self.buffer_chunks
-        sub_chunk_save = self.sub_chunk_save
-        path_duty_cycle_data= self.path_duty_cycle_data
-        path_mean_data= self.path_mean_data
-        path_pid_constants = self.path_pid_constants
-        path_pid_terminos = self.path_pid_terminos
-        path_semaforos = self.path_semaforos
-        path_timestamp = self.path_timestamp
-        semaforo4_ovr = self.semaforo4_ovr
-                
-        i = 0
-        
-        if not save_processed_data:
-            while self.evento_salida.is_set():  
-                self.semaphore4.acquire() 
-        else:
-    
-            while not self.evento_salida.is_set(): 
-    
-                if self.semaphore4._value > semaforo4_ovr:    
-                    error_string = 'Hay overrun en la escritura de datos duty cycle!'
-                    self.exit_callback1(error_string)                          
-                
-                self.semaphore4.acquire() 
-                
-                if not i%sub_chunk_save:
-                     
-                    j = (i-sub_chunk_save)%buffer_chunks  
-                    jj = (j+sub_chunk_save-1)%buffer_chunks + 1 
-                    
-                    try:
-                        self.save_to_np_file(path_duty_cycle_data, self.output_buffer_duty_cycle[j:jj,0]) 
-                    except:
-                        warning_string = 'Error: No se guarda duty cycle'
-                        self.warning_callback(warning_string)                        
-    
-                    try:
-                        self.save_to_np_file(path_mean_data, self.output_buffer_mean_data[j:jj,0]) 
-                    except:
-                        warning_string = 'Error: No se guarda mean data'
-                        self.warning_callback(warning_string)                             
-    
-                    try:
-                        self.save_to_np_file(path_pid_constants, self.output_buffer_pid_constants[j:jj,:]) 
-                    except:
-                        warning_string = 'Error: No se guardan las constantes pid'
-                        self.warning_callback(warning_string)                            
-    
-                    try:
-                        self.save_to_np_file(path_pid_terminos, self.output_buffer_pid_terminos[j:jj,:]) 
-                    except:
-                        warning_string = 'Error: No se guardan los terminos pid'
-                        self.warning_callback(warning_string)                           
-
-                    try:
-                        self.save_to_np_file(path_semaforos, self.output_buffer_semaforos[j:jj,:]) 
-                    except:
-                        warning_string = 'Error: No se guardan los semaforos'
-                        self.warning_callback(warning_string)    
-                   
-                    try:
-                        self.save_to_txt_file(path_timestamp, self.output_buffer_timestamp[j:jj]) 
-                    except:
-                        warning_string = 'Error: No se guardan los timestamp'
-                        self.warning_callback(warning_string) 
-                                            
-                i = i+1
-                i = i%buffer_chunks             
-        
-    
-    def plot_thread(self):
-
-        buffer_chunks = self.buffer_chunks
-        show_plot = self.show_plot
-        sub_chunk_plot = self.sub_chunk_plot
-        ai_samples = self.ai_samples
-        ai_samplerate = self.ai_samplerate
-        semaforo5_ovr = self.semaforo5_ovr
-        semaforo4_ovr = self.semaforo4_ovr
-        semaforo3_ovr = self.semaforo3_ovr
-        semaforo2_ovr = self.semaforo2_ovr
-        semaforo1_ovr = self.semaforo1_ovr
-         
-        # Contador de los semaforos
-        x_semaphores = np.zeros(5)
-        
-        # Para tiempo de medicion y de adquisicion
-        previous = datetime.datetime.now()
-        delta_t = np.array([])
-        delta_t_avg = 10
         
         # Data
         data_plot1 = self.data_plot1
@@ -945,12 +637,12 @@ class pid_daq(object):
         line3 = self.line3
         setpoint_line = self.setpoint_line
         
-           
-                
+        sub_chunk_plot = 1
+                        
         i = 0
         while not self.evento_salida.is_set(): 
         
-            if self.semaphore5._value > semaforo5_ovr:
+            if self.semaphore1._value > buffer_chunks:
                     error_string = 'Hay overrun en el plot!'
                     self.exit_callback1(error_string)         
 
@@ -960,57 +652,41 @@ class pid_daq(object):
                 self.warnings = []
                 self.evento_warning.clear() 
 
+            self.semaphore1.acquire()  
             
-            self.semaphore5.acquire()
-                    
-            
-            if not show_plot:
-                continue
-            
-            if i%sub_chunk_plot == 0: 
+            if not i%sub_chunk_plot: 
                 
                 # Paso para buffer
                 j = (i-sub_chunk_plot)%buffer_chunks  
                 jj = (j+sub_chunk_plot-1)%buffer_chunks + 1 
-    
-                # Medición de tiempos
-                now, previous, delta_t, measure_adq_ratio = self.measure_adq_ratio_function(previous,delta_t,delta_t_avg,ai_samples,ai_samplerate,sub_chunk_plot)
+                
+                now = datetime.datetime.now()
+                now = now.strftime("%Y-%m-%d %H:%M:%S")                  
                 self.txt_now.set_text(now)
+    
             
                 # Data update
-                self.update_plot(data_plot1,line1,self.output_buffer_mean_data,sub_chunk_plot,j,jj)
-                self.update_plot(data_plot2,line2,self.output_buffer_duty_cycle,sub_chunk_plot,j,jj)
+                self.update_plot(data_plot1,line1,self.input_buffer[:,8:10],sub_chunk_plot,j,jj)
+                self.update_plot(data_plot2,line2,self.input_buffer[:,10:11],sub_chunk_plot,j,jj)
                 if not self.pid_costants_button:
-                    self.update_plot(data_plot3,line3,self.output_buffer_pid_terminos,sub_chunk_plot,j,jj)
+                    self.update_plot(data_plot3,line3,self.input_buffer[:,5:8],sub_chunk_plot,j,jj)
                 else:
-                    self.update_plot(data_plot3,line3,self.output_buffer_pid_terminos*self.output_buffer_pid_constants[:,1:4],sub_chunk_plot,j,jj)
-                setpoint_line.set_ydata(self.output_buffer_pid_constants[i,0])
- 
-                # Textos
-                x_semaphores[0] = (self.semaphore1._value/semaforo1_ovr)*100
-                x_semaphores[1] = (self.semaphore2._value/semaforo2_ovr)*100
-                x_semaphores[2] = (self.semaphore3._value/semaforo3_ovr)*100
-                x_semaphores[3] = (self.semaphore4._value/semaforo4_ovr)*100
-                x_semaphores[4] = (self.semaphore5._value/semaforo5_ovr)*100
-                
-                self.monitoring_txt0.set_text('%2d' % x_semaphores[0] + ' %')
-                self.monitoring_txt1.set_text('%2d' % x_semaphores[1] + ' %')
-                self.monitoring_txt2.set_text('%2d' % x_semaphores[2] + ' %')
-                self.monitoring_txt3.set_text('%2d' % x_semaphores[3] + ' %')
-                self.monitoring_txt4.set_text('%2d' % x_semaphores[4] + ' %')              
-                self.monitoring_txt5.set_text('%4.2f' % measure_adq_ratio)
-#               
-                self.pid_para_txt0.set_text('%6.2f' % self.output_buffer_pid_constants[i,0] + ' V')
-                self.pid_para_txt1.set_text('%6.2f' % self.output_buffer_pid_constants[i,1])
-                self.pid_para_txt2.set_text('%6.2f' % self.output_buffer_pid_constants[i,2])
-                self.pid_para_txt3.set_text('%6.2f' % self.output_buffer_pid_constants[i,3])
-                self.pid_para_txt4.set_text('%2d' % self.output_buffer_pid_constants[i,4])                                
+                    self.update_plot(data_plot3,line3,self.input_buffer[:,5:8]*self.input_buffer[:,1:4],sub_chunk_plot,j,jj)
+                setpoint_line.set_ydata(self.input_buffer[i,0])
+
+            
+                self.pid_para_txt0.set_text('%6.2f' % self.input_buffer[i,0] + ' V')
+                self.pid_para_txt1.set_text('%6.2f' % self.input_buffer[i,1])
+                self.pid_para_txt2.set_text('%6.2f' % self.input_buffer[i,2])
+                self.pid_para_txt3.set_text('%6.2f' % self.input_buffer[i,3])
+                self.pid_para_txt4.set_text('%2d' % self.input_buffer[i,4])                                
                 
             self.fig.canvas.draw_idle()
                    
             i = i+1
             i = i%buffer_chunks 
             
+        self.arduino.close()    
         self.print_error(self.acquiring_errors)
         self.fig.canvas.draw_idle()
 
@@ -1129,7 +805,7 @@ class pid_daq(object):
                 self.ax1.set_ylim([ax1_lim_i,ax1_lim_f])
                 
         if ax2_lim_i is not np.NaN and ax2_lim_f is not np.NaN:    
-            if not 'ax' in self.__dict__:
+            if not 'ax2' in self.__dict__:
                 self.ax2_lim_i = ax2_lim_i
                 self.ax2_lim_f = ax2_lim_f
             else:
@@ -1198,22 +874,13 @@ class pid_daq(object):
 
     def define_semaforos_overrun(self,
         semaforo1_ovr = np.NaN,
-        semaforo2_ovr = np.NaN,
-        semaforo3_ovr = np.NaN,
-        semaforo4_ovr = np.NaN,
-        semaforo5_ovr = np.NaN
+        semaforo2_ovr = np.NaN
     ):
       
         if semaforo1_ovr > 0 and semaforo1_ovr < self.buffer_chunks and semaforo1_ovr is not np.NaN:        
             self.semaforo1_ovr = semaforo1_ovr
         if semaforo2_ovr > 0 and semaforo2_ovr < self.buffer_chunks and semaforo2_ovr is not np.NaN:              
             self.semaforo2_ovr = semaforo2_ovr
-        if semaforo3_ovr > 0 and semaforo3_ovr < self.buffer_chunks and semaforo3_ovr is not np.NaN:             
-            self.semaforo3_ovr = semaforo3_ovr
-        if semaforo4_ovr > 0 and semaforo4_ovr < self.buffer_chunks and semaforo4_ovr is not np.NaN:              
-            self.semaforo4_ovr = semaforo4_ovr            
-        if semaforo5_ovr > 0 and semaforo5_ovr < self.buffer_chunks and semaforo5_ovr is not np.NaN:             
-            self.semaforo5_ovr = semaforo5_ovr
             
         
 
@@ -1227,12 +894,11 @@ class pid_daq(object):
                 
 
     def inicializa_threads(self):    
-        self.t1 = threading.Thread(target=self.writer_thread, args=[])
-        self.t2 = threading.Thread(target=self.reader_thread, args=[])
-        self.t3 = threading.Thread(target=self.callback_thread, args=[])
-        self.t4 = threading.Thread(target=self.data_writer1_thread, args=[])
-        self.t5 = threading.Thread(target=self.data_writer2_thread, args=[])
-        self.t6 = threading.Thread(target=self.plot_thread, args=[])
+        self.t1 = threading.Thread(target=self.recibe, args=[])
+        self.t2 = threading.Thread(target=self.guarda, args=[])
+        self.t3 = threading.Thread(target=self.manda, args=[])
+        self.t4 = threading.Thread(target=self.plotea, args=[])
+
 
     
 
@@ -1243,6 +909,7 @@ class pid_daq(object):
         self.inicializa_buffers()        
         self.inicializa_interfaz()    
         self.inicializa_sliders_botones()
+        self.inicializa_arduino()
         self.inicializa_semaforos()
         self.inicializa_threads()
         
@@ -1256,136 +923,31 @@ class pid_daq(object):
 
     def start(self):
         
-        if self.save_raw_data or self.save_processed_data:
-            self.save_parametros_to_txt_file(self.path_parametros)            
+#        if self.save_data:
+#            self.save_parametros_to_txt_file(self.path_parametros)            
         
         if len(self.initialize_errors) == 0:
             self.t1.start()
-            self.t2.start()
+            #self.t2.start()
             self.t3.start()
             self.t4.start()
-            self.t5.start()
-            self.t6.start()
+
         
 
 #%%
         
-def callback_pid(self,i):
-
-    """
-    # Variables de entrada fijas:
-    # --------------------------
-    # i: posicion actual en el input buffer. Recordar que i [0,buffer_chunks]
-    # input_buffer: np.array [buffer_chunks, samples, ai_nbr_channels]
-    # output_buffer_duty_cycle: np.array [buffer_chunks]. La i-posicion es la vieja, y se la calcula en el callback (output_buffer_duty_cycle_i)
-    # output_buffer_pid_terminos: np.array [buffer_chunks,3] [buffer_chunks,termino_p termino_i termino_d]. La i-posicion es la vieja, y se la calcula en el callback
-    #   termino_p: termino multiplicativo
-    #   termino_i: termino integral
-    #   termino_d: termino derivativo
-    # output_buffer_mean_data: np.array [buffer_chunks,ai_nbr_channels]. La i-posicion es la actual. La columna 0 se utiliza para el PID.
-    # output_buffer_error_data: np.array [buffer_chunks]. La i-posicion es la actual: output_buffer_mean_data[i,0] - lsetpoint[0]. Importante: se toma con el valor del setpoint del slider!
-    # buffer_chunks: Cantidad de chunks del buffer
-    # output_buffer_pid_constants: np.array [buffer_chunks, 5] - > [buffer_chunks, setpoint kp ki kd isteps]. La i-posicion es la actual. Importante: se toma con el valor del setpoint del slider!
-    #   setpoint: Valor de tensión del setpoint
-    #   kp: constante multiplicativa del PID
-    #   ki: constante integral del PID
-    #   kd: constante derivativa del PID
-    #   isteps: cantidad de pasos para atrás utilizados para el termino integral
-    #
-    #
-    # Variables de entrada del usuario:
-    # --------------------------------
-    # callback_pid_variables: lista con variables puestas por el usuario
-    #   Ejemplo:
-    #   variable0 = callback_pid_variables[0]
-    #   variable1 = callback_pid_variables[1]
-    #
-    #
-    # Salidas (calculadas en el callback):
-    # -------
-    # output_buffer_duty_cycle_i: duty cycle calculado en el callback
-    # output_buffer_error_data_i: error calculado en el callback
-    # termino_p: termino multiplicativo que acompaña a kp
-    # termino_i: termino integral que acompaña a ki
-    # termino_d: termino derivatico que acompaña a kd
-    # setpoint: Valor de tensión del setpoint
-    # kp: constante multiplicativa del PID
-    # ki: constante integral del PID
-    # kd: constante derivativa del PID
-    # isteps: cantidad de pasos para atrás utilizados para el termino integral        
-    #####################################
-    """
-    
-    # Valores maximos y minimos de duty cycle
-    max_duty_cycle = self.max_duty_cycle
-    min_duty_cycle = self.min_duty_cycle 
-    
-    # Cargo valores actuales
-    setpoint = self.output_buffer_pid_constants[i,0]
-    kp = self.output_buffer_pid_constants[i,1]
-    ki = self.output_buffer_pid_constants[i,2]
-    kd = self.output_buffer_pid_constants[i,3]
-    isteps = int(self.output_buffer_pid_constants[i,4])
-    output_buffer_error_data_i = self.output_buffer_error_data[i,0]
-    output_buffer_duty_cycle = self.output_buffer_duty_cycle[:,0]
-    mean_data_i = self.output_buffer_mean_data[i,0]
-    sample_period = self.sample_period
-        
-    # Paso anterior de buffer circular
-    j = (i-1)%buffer_chunks
-    
-#        ## Ejemplo de cambio de parametros PID on the fly
-#        setpoint = output_buffer_pid_constants[j,0] - 0.002
-#        kd = output_buffer_pid_constants[j,3] + 0.002
-#        output_buffer_error_data_i = mean_data_i - setpoint
-            
-    # isteps paso anterior de buffer circular
-    k = (i-isteps)%buffer_chunks    
-    
-    # Algoritmo PID
-    termino_p = output_buffer_error_data_i
-    termino_d = output_buffer_error_data_i - self.output_buffer_error_data[j]
-    termino_d = termino_d*sample_period
-    
-    #ar = np.arange(0,isteps)
-    #vec = np.exp(-ar)
-    #vec = vec[::-1]
-    
-    # Termino integral (hay que optimizar esto)
-    termino_i = 0
-    if k >= i:
-        termino_i = np.sum(self.output_buffer_error_data[k:buffer_chunks]) + np.sum(self.output_buffer_error_data[0:i])
-    else:
-        termino_i = np.sum(self.output_buffer_error_data[k:i])
-    termino_i = termino_i*sample_period
-    
-    output_buffer_duty_cycle_i = kp*termino_p + ki*termino_i + kd*termino_d
-    
-    #time.sleep(0.01)
-
-    # Salida de la función
-    output_buffer_duty_cycle_i = min(output_buffer_duty_cycle_i,max_duty_cycle)
-    output_buffer_duty_cycle_i = max(output_buffer_duty_cycle_i,min_duty_cycle)
-    
-    return output_buffer_duty_cycle_i, output_buffer_error_data_i, termino_p, termino_i, termino_d, setpoint, kp, ki, kd, isteps 
-
 
 
 ##
-carpeta_salida = 'PID3'
+carpeta_salida = 'PID_ARDUINO'
 
 if not os.path.exists(carpeta_salida):
     os.mkdir(carpeta_salida)
          
 # Variables 
-ai_channels = [4]
 buffer_chunks = 500
-ai_samples = 1000
-ai_samplerate = 50000
-do_channel = [0]
-initial_do_duty_cycle = 0.5
-initial_do_frequency = 2000
-setpoint = 4.42
+initial_value = 2.6
+setpoint = 2.3
 kp = 0.96
 ki = 22.98
 kd = 19.86
@@ -1394,36 +956,24 @@ path_data_save = os.path.join(carpeta_salida,'experimento6')
 callback_pid_variables = {}
 
 
-
 ##
 parametros = {}
+parametros['com_device'] = 5
 parametros['buffer_chunks'] = buffer_chunks
-parametros['ai_samples'] = ai_samples
-parametros['ai_samplerate'] = ai_samplerate
-parametros['ai_device'] = 'Dev2/ai'
-parametros['ai_channels'] = ai_channels  
-parametros['ai_voltage_range'] = 5
-parametros['do_device'] = 'Dev2/ctr'
-parametros['do_channel'] = do_channel  
-parametros['initial_do_duty_cycle'] = initial_do_duty_cycle
-parametros['initial_do_frequency'] = initial_do_frequency
+parametros['initial_value'] = initial_value
 parametros['setpoint'] = setpoint
 parametros['pid_constants'] = [kp,ki,kd,isteps]
-parametros['save_raw_data'] = True
-parametros['save_processed_data'] = True
+parametros['save_data'] = False
 parametros['path_data_save'] = path_data_save
-parametros['show_plot'] = True
-parametros['callback_pid'] = callback_pid    
-parametros['callback_pid_variables'] = callback_pid_variables
 parametros['sub_chunk_save'] = 25
-parametros['sub_chunk_plot'] = 25
-parametros['nbr_buffers_plot'] = 5
-parametros['plot_rate_hz'] = 10
+parametros['nbr_buffers_plot'] = 1
+parametros['dt'] = 1./200.
+parametros['chunk_plot'] = 20
+
 
 adquisicion = pid_daq(parametros)
 adquisicion.configura_adquisicion()
-adquisicion.define_limites_de_plots(ax1_range=[4,5],ax2_range=[0,2],ax3_range=[-2,2])
-adquisicion.define_limites_sliders(setpoint_range=[4,5],kp_range=[0,2],ki_range=[0,50],kd_range=[0,50])
-adquisicion.define_semaforos_overrun(semaforo1_ovr = 5)
+adquisicion.define_limites_de_plots(ax1_range=[0,3.5],ax2_range=[0,3.5],ax3_range=[-2,2])
+adquisicion.define_limites_sliders(setpoint_range=[0.535,2.750],kp_range=[0,2],ki_range=[0,50],kd_range=[0,50])
 adquisicion.start()        
         

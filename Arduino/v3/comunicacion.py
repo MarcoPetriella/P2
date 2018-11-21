@@ -21,12 +21,12 @@ import struct
 import array
 import threading
 
-arduino = serial.Serial('COM4', 2*9600, timeout=0.5)
+arduino = serial.Serial('COM5', 2*9600, timeout=0.5)
 arduino.set_buffer_size(rx_size = 8*1000, tx_size = 8*1000)
 
 cant_chunk_rec = 1
 sub_chunk_plot = 1
-cant_variables= 11
+cant_variables= 12
 buffer_in_data = np.zeros([10000,cant_variables])
 buffer_in_timestamp = [None]*10000
 
@@ -57,6 +57,7 @@ def recibe():
                 i = i+1
                 i = i%buffer_in_data.shape[0]
                 semaphore1.release()
+                print(array_serial)
             
         except:
             print("Error en la lectura")
@@ -70,7 +71,7 @@ def recibe():
         
 def manda():   
 
-    setpoint = 2000
+    setpoint = 2.2
     kp = 0.77
     ki = 0.2
     kd = 0.3

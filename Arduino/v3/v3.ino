@@ -3,10 +3,11 @@
 #define SERIAL_BUFFER_SIZE 2048
 #define out_chunks 5000
 #define samples_per_chunk 100
-#define chunk_to_python 10
-#define nbr_out_variables 11
+#define chunk_to_python 20
+#define nbr_out_variables 12
+#define nbr_ai_channels 2
 
-volatile float buffer_in[samples_per_chunk];
+volatile float buffer_in[samples_per_chunk*nbr_ai_channels];
 volatile float error_buffer_out[out_chunks];
 volatile float variables_buffer_out[nbr_out_variables];
 
@@ -19,15 +20,19 @@ float termino_p = 0.0;
 float termino_i = 0.0;
 float termino_d = 0.0;
 
-float setpoint = 2.3;
-float kp = 1.0;
-float ki = 5.0;
-float kd = 4.05;
-float isteps  = 200;
+volatile float setpoint = 2.3;
+volatile float kp = 1.0;
+volatile float ki = 5.0;
+volatile float kd = 4.05;
+volatile float isteps  = 200;
 float isteps_ant = 0;
 float dt = 0.0;
 
-///////////////////////////
+float dac_min_range = 0.535;
+float dac_max_range = 2.750;
+float ai_min_range = 0;
+float ai_max_range = 3.3;
+
 ///////////////////////////
 
 int clock_pin_in = 7;
@@ -38,7 +43,8 @@ int recive_from_python_pin_in = 4;
 int clock_pin_out = 35;
 int chunk_pin_out = 37;
 int send_to_python_pin_out = 39;
-int analog_read_pin = 0;
+int analog_read_pin1 = 0;
+int analog_read_pin2 = 1;
 
 float clock_frequency = 40000;
 int clock_ind = 0;
@@ -57,12 +63,13 @@ int seti = 500;
 void setup() {
   // put your setup code here, to run once:
   Serial.begin(2*9600);
-  //Serial.setTimeout(100);
+  Serial.setTimeout(1000);
 
   analogReadResolution(12);
   analogWriteResolution(12);
   pinMode (DAC0,OUTPUT);
   pinMode (DAC1,OUTPUT);
+  analogWrite(DAC0, 2010); 
   analogWrite(DAC1, 2010);  
 
   
@@ -153,27 +160,31 @@ void setup() {
 
 void loop() {
   // put your main code here, to run repeatedly:
-
+    noInterrupts();
     // Recibe de python
-    if(Serial.available() > 50){ 
+ 
+
+    if(Serial.available() >= 5*4){ 
         Serial.readBytes((char*)&setpoint, sizeof(setpoint));
         Serial.readBytes((char*)&kp, sizeof(kp));
         Serial.readBytes((char*)&ki, sizeof(ki)); 
         Serial.readBytes((char*)&kd, sizeof(kd));
         Serial.readBytes((char*)&isteps, sizeof(isteps));  
-      }  
+      } 
+//     while (Serial.available()){
+//      Serial.readBytes((char*)&dummy, sizeof(dummy));
+//      }
+    
+     interrupts();
 
 }
 
 void acq_callback(){
 
-  float ana = analogRead(analog_read_pin);
-  buffer_in[k] = ana; 
-
-  if (not k){
-    seti += 10;
-    analogWrite(DAC1, seti);     
-    }
+  float ana1 = analogRead(analog_read_pin1);
+  float ana2 = analogRead(analog_read_pin2);
+  buffer_in[nbr_ai_channels*k] = ana1; 
+  buffer_in[nbr_ai_channels*k+1] = ana2; 
 
   k = k + 1;
   k = k%samples_per_chunk;
@@ -187,14 +198,19 @@ void chunk_callback(){
     int w = 0;
 
     // Promedio de la medicion
-    long suma = 0;
+    long suma1 = 0;
+    long suma2 = 0;
     for (i=0;i<samples_per_chunk;i++){
-        suma += buffer_in[i];   
+        suma1 += buffer_in[nbr_ai_channels*i];   
+        suma2 += buffer_in[nbr_ai_channels*i+1]; 
     }
-    float avg = suma/samples_per_chunk;
+    float avg1 = suma1/samples_per_chunk;
+    float avg2 = suma2/samples_per_chunk;
+    avg1 = (avg1-ai_min_range)*(ai_max_range-ai_min_range)/4095.;
+    avg2 = (avg2-ai_min_range)*(ai_max_range-ai_min_range)/4095.;
 
     // Error
-    error_buffer_out[n] = setpoint - avg;
+    error_buffer_out[n] = setpoint - avg1;
   
     // Buffer circular 
     int jj = 0;
@@ -224,10 +240,12 @@ void chunk_callback(){
           termino_i = termino_i*dt;
       }
     
-    float control = kp*termino_p + ki*termino_i + kd*termino_d;
-    control = max(0,control);
-    control = min(pow(2,12)-100,control);
-    //analogWrite(DAC1, control);  
+    float control = kp*termino_p + ki*termino_i + kd*termino_d;    
+    control = max(dac_min_range,control);
+    control = min(dac_max_range,control);
+    int control_bin = int((control-dac_min_range)/(dac_max_range-dac_min_range)*4095.);
+    
+    analogWrite(DAC1, control_bin);  
 
     // Guarda el vector de salida
     variables_buffer_out[0] = setpoint;
@@ -238,9 +256,10 @@ void chunk_callback(){
     variables_buffer_out[5] = termino_p;
     variables_buffer_out[6] = termino_i;
     variables_buffer_out[7] = termino_d;
-    variables_buffer_out[8] = avg;
-    variables_buffer_out[9] = control;    
-    variables_buffer_out[10] = float(n);     
+    variables_buffer_out[8] = avg1;
+    variables_buffer_out[9] = avg2;
+    variables_buffer_out[10] = control;    
+    variables_buffer_out[11] = float(n);     
 
     n = n + 1;
     n = n%out_chunks;
