@@ -109,7 +109,7 @@ class pid_daq(object):
         self.dt = parametros['dt']
         self.chunk_plot = parametros['chunk_plot']
         
-        self.cantidad_variables = 12
+        self.cantidad_variables = 13
         
         # Valores predeterminado
         self.pid_onoff_button = True
@@ -524,7 +524,7 @@ class pid_daq(object):
         
         
     def inicializa_arduino(self):
-        self.arduino = serial.Serial('COM'+str(self.com_device), 2*9600, timeout=0.5)
+        self.arduino = serial.Serial('COM'+str(self.com_device), 2*9600, timeout=1)
         self.arduino.set_buffer_size(rx_size = 8*1000, tx_size = 8*1000)
         
                        
@@ -563,11 +563,19 @@ class pid_daq(object):
 
     def manda(self):   
      
-        
+        self.arduino.flush()
         while not self.evento_salida.is_set():     
-            time.sleep(2)
-            try:               
+            try:     
+#                self.arduino.flush()
+#                time.sleep(1)
+                
+                #self.arduino.write(struct.pack('<fffffff',self.setpoint,self.kp,self.ki,self.kd,self.isteps,float(self.pid_onoff_button),self.initial_value)) 
+                self.arduino.flushOutput()
+                time.sleep(1)   
                 self.arduino.write(struct.pack('<fffff',self.setpoint,self.kp,self.ki,self.kd,self.isteps)) 
+                time.sleep(1)   
+
+                
             except:
                 print("Error en el envio")
 
@@ -928,7 +936,7 @@ class pid_daq(object):
         
         if len(self.initialize_errors) == 0:
             self.t1.start()
-            #self.t2.start()
+            self.t2.start()
             self.t3.start()
             self.t4.start()
 
@@ -946,7 +954,7 @@ if not os.path.exists(carpeta_salida):
          
 # Variables 
 buffer_chunks = 500
-initial_value = 2.6
+initial_value = 1.5
 setpoint = 2.3
 kp = 0.96
 ki = 22.98
@@ -963,11 +971,11 @@ parametros['buffer_chunks'] = buffer_chunks
 parametros['initial_value'] = initial_value
 parametros['setpoint'] = setpoint
 parametros['pid_constants'] = [kp,ki,kd,isteps]
-parametros['save_data'] = False
+parametros['save_data'] = True
 parametros['path_data_save'] = path_data_save
 parametros['sub_chunk_save'] = 25
 parametros['nbr_buffers_plot'] = 1
-parametros['dt'] = 1./200.
+parametros['dt'] = 1./400.
 parametros['chunk_plot'] = 20
 
 

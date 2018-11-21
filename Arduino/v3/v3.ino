@@ -4,7 +4,7 @@
 #define out_chunks 5000
 #define samples_per_chunk 100
 #define chunk_to_python 20
-#define nbr_out_variables 12
+#define nbr_out_variables 13
 #define nbr_ai_channels 2
 
 volatile float buffer_in[samples_per_chunk*nbr_ai_channels];
@@ -25,13 +25,21 @@ volatile float kp = 1.0;
 volatile float ki = 5.0;
 volatile float kd = 4.05;
 volatile float isteps  = 200;
+volatile float pid_onoff = 1;
+volatile float initial_value = 0.;
+int header_input = -800;
 float isteps_ant = 0;
 float dt = 0.0;
+
+
+int input_size_var = 0;
 
 float dac_min_range = 0.535;
 float dac_max_range = 2.750;
 float ai_min_range = 0;
 float ai_max_range = 3.3;
+
+volatile int ava = 0;
 
 ///////////////////////////
 
@@ -151,6 +159,9 @@ void setup() {
   m = 0;
   p = 0;
 
+  input_size_var = 5*sizeof(float);
+  
+
   // Mando los callbacks
   attachInterrupt(digitalPinToInterrupt(clock_pin_in), acq_callback, RISING); 
   attachInterrupt(digitalPinToInterrupt(chunk_pin_in), chunk_callback, RISING); 
@@ -162,18 +173,31 @@ void loop() {
   // put your main code here, to run repeatedly:
     noInterrupts();
     // Recibe de python
- 
+    
 
-    if(Serial.available() >= 5*4){ 
+//    while(header_input != -999){
+//      Serial.readBytes((char*)&header_input, sizeof(header_input));
+//      } 
+
+//     while (Serial.available()/input_size_var > 1 && Serial.available()%input_size_var != 0 && Serial.available() > 0) {
+//      char t = Serial.read();
+//      ava += 1;
+//      } 
+
+    if(Serial.available()== input_size_var){ 
         Serial.readBytes((char*)&setpoint, sizeof(setpoint));
         Serial.readBytes((char*)&kp, sizeof(kp));
         Serial.readBytes((char*)&ki, sizeof(ki)); 
         Serial.readBytes((char*)&kd, sizeof(kd));
-        Serial.readBytes((char*)&isteps, sizeof(isteps));  
+        Serial.readBytes((char*)&isteps, sizeof(isteps));    
       } 
-//     while (Serial.available()){
-//      Serial.readBytes((char*)&dummy, sizeof(dummy));
-//      }
+      //Serial.flush();
+//      while(Serial.available()){
+//        Serial.read();
+//        ava +=1;
+//        }
+
+    
     
      interrupts();
 
@@ -241,6 +265,9 @@ void chunk_callback(){
       }
     
     float control = kp*termino_p + ki*termino_i + kd*termino_d;    
+//    if (pid_onoff != 0){
+//      control = initial_value;
+//      }   
     control = max(dac_min_range,control);
     control = min(dac_max_range,control);
     int control_bin = int((control-dac_min_range)/(dac_max_range-dac_min_range)*4095.);
@@ -260,6 +287,7 @@ void chunk_callback(){
     variables_buffer_out[9] = avg2;
     variables_buffer_out[10] = control;    
     variables_buffer_out[11] = float(n);     
+    variables_buffer_out[12] = float(ava);    
 
     n = n + 1;
     n = n%out_chunks;
